@@ -57,13 +57,14 @@ async function init() {
  * setup language switch
  */
 function setupLanguageSwitch() {
-    const btn = document.getElementById('langSwitch');
-    if (!btn) return;
-    btn.textContent = i18n.locale === 'zh-CN' ? 'EN' : '中文';
-    btn.addEventListener('click', async () => {
-        const newLocale = i18n.locale === 'zh-CN' ? 'en-US' : 'zh-CN';
+    const select = document.getElementById('langSwitch');
+    if (!select) return;
+    select.value = i18n.resolveLocale(i18n.locale);
+    select.addEventListener('change', async () => {
+        const newLocale = i18n.resolveLocale(select.value);
+        if (newLocale === i18n.locale) return;
         await i18n.switchLocale(newLocale);
-        btn.textContent = newLocale === 'zh-CN' ? 'EN' : '中文';
+        select.value = i18n.locale;
         updateDynamicTexts();
     });
 }
@@ -119,6 +120,7 @@ function reset() {
     fileInput.value = '';
     copyBtn.style.display = 'none';
     downloadBtn.style.display = 'none';
+    uploadArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function handleFileSelect(e) {
@@ -144,6 +146,7 @@ function handleFiles(files) {
         file,
         name: file.name,
         status: 'pending',
+        validation: null,
         originalImg: null,
         processedBlob: null,
         originalUrl: null,
@@ -167,23 +170,70 @@ function handleFiles(files) {
     }
 }
 
+function renderSingleImageMeta(item) {
+    if (!item?.originalImg || !engine) return;
+
+    const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
+    originalInfo.innerHTML = `
+        <p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
+        <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
+        <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>
+    `;
+}
+
+function renderSingleProcessedMeta(item) {
+    if (!item?.originalImg) return;
+
+    processedInfo.innerHTML = `
+        <p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
+        <p>${i18n.t('info.status')}: ${i18n.t('info.removed')}</p>
+    `;
+}
+
+function renderImageCardStatus(item) {
+    if (!item) return;
+
+    if (item.status === 'pending') {
+        updateStatus(item.id, i18n.t('status.pending'));
+        return;
+    }
+
+    if (item.status === 'processing') {
+        updateStatus(item.id, i18n.t('status.processing'));
+        return;
+    }
+
+    if (item.status === 'error') {
+        updateStatus(item.id, i18n.t('status.failed'));
+        return;
+    }
+
+    if (item.status !== 'completed' || !item.originalImg || !engine) return;
+
+    const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
+    let html = `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
+        <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
+        <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>`;
+
+    if (item.validation && (!item.validation.is_google || !item.validation.is_original)) {
+        html += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${getOriginalStatus(item.validation)}</p>`;
+    }
+
+    updateStatus(item.id, html, true);
+}
+
 async function processSingle(item) {
     try {
         const img = await loadImage(item.file);
         item.originalImg = img;
 
-        const { is_google, is_original } = await checkOriginal(item.file);
-        const status = getOriginalStatus({ is_google, is_original });
-        setStatusMessage(status, is_google && is_original ? 'success' : 'warn');
+        const validation = await checkOriginal(item.file);
+        item.validation = validation;
+        const status = getOriginalStatus(validation);
+        setStatusMessage(status, validation.is_google && validation.is_original ? 'success' : 'warn');
 
         originalImage.src = img.src;
-
-        const watermarkInfo = engine.getWatermarkInfo(img.width, img.height);
-        originalInfo.innerHTML = `
-            <p>${i18n.t('info.size')}: ${img.width}×${img.height}</p>
-            <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
-            <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>
-        `;
+        renderSingleImageMeta(item);
 
         const result = await engine.removeWatermarkFromImage(img);
         const blob = await new Promise(resolve => result.toBlob(resolve, 'image/png'));
@@ -196,17 +246,14 @@ async function processSingle(item) {
         overlay.style.display = 'block';
         handle.style.display = 'flex';
         processedInfo.style.display = 'block';
-        
+
         copyBtn.style.display = 'flex';
         copyBtn.onclick = () => copyImage(item);
 
         downloadBtn.style.display = 'flex';
         downloadBtn.onclick = () => downloadImage(item);
 
-        processedInfo.innerHTML = `
-            <p>${i18n.t('info.size')}: ${img.width}×${img.height}</p>
-            <p>${i18n.t('info.status')}: ${i18n.t('info.removed')}</p>
-        `;
+        renderSingleProcessedMeta(item);
 
         document.getElementById('comparisonContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
@@ -234,7 +281,9 @@ function createImageCard(item) {
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-1 10H8m4-3H8m1.5 6H8"></path></svg>
                     <span data-i18n="btn.copy">${i18n.t('btn.copy')}</span>
                 </button>
-                <button id="download-${item.id}" class="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-xs md:text-sm hidden">${i18n.t('btn.download')}</button>
+                <button id="download-${item.id}" class="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-xs md:text-sm hidden">
+                    <span data-i18n="btn.download">${i18n.t('btn.download')}</span>
+                </button>
             </div>
         </div>
     `;
@@ -256,7 +305,7 @@ async function processQueue() {
             if (item.status !== 'pending') return;
 
             item.status = 'processing';
-            updateStatus(item.id, i18n.t('status.processing'));
+            renderImageCardStatus(item);
 
             try {
                 const result = await engine.removeWatermarkFromImage(item.originalImg);
@@ -267,11 +316,7 @@ async function processQueue() {
                 document.getElementById(`result-${item.id}`).src = item.processedUrl;
 
                 item.status = 'completed';
-                const watermarkInfo = engine.getWatermarkInfo(item.originalImg.width, item.originalImg.height);
-
-                updateStatus(item.id, `<p>${i18n.t('info.size')}: ${item.originalImg.width}×${item.originalImg.height}</p>
-            <p>${i18n.t('info.watermark')}: ${watermarkInfo.size}×${watermarkInfo.size}</p>
-            <p>${i18n.t('info.position')}: (${watermarkInfo.position.x},${watermarkInfo.position.y})</p>`, true);
+                renderImageCardStatus(item);
 
                 const copyBtn = document.getElementById(`copy-${item.id}`);
                 copyBtn.classList.remove('hidden');
@@ -284,16 +329,13 @@ async function processQueue() {
                 processedCount++;
                 updateProgress();
 
-                checkOriginal(item.originalImg).then(({ is_google, is_original }) => {
-                    if (!is_google || !is_original) {
-                        const status = getOriginalStatus({ is_google, is_original });
-                        const statusEl = document.getElementById(`status-${item.id}`);
-                        if (statusEl) statusEl.innerHTML += `<p class="inline-block mt-1 text-xs md:text-sm text-warn">${status}</p>`;
-                    }
-                }).catch(() => {});
+                checkOriginal(item.file).then((validation) => {
+                    item.validation = validation;
+                    renderImageCardStatus(item);
+                }).catch(() => { });
             } catch (error) {
                 item.status = 'error';
-                updateStatus(item.id, i18n.t('status.failed'));
+                renderImageCardStatus(item);
                 console.error(error);
             }
         }));
@@ -314,8 +356,26 @@ function updateProgress() {
 }
 
 function updateDynamicTexts() {
-    if (progressText.textContent) {
+    if (progressText.textContent || imageQueue.length > 0) {
         updateProgress();
+    }
+
+    if (imageQueue.length > 0) {
+        imageQueue.forEach(item => renderImageCardStatus(item));
+    }
+
+    if (singlePreview.style.display !== 'none' && imageQueue.length === 1) {
+        const [item] = imageQueue;
+        renderSingleImageMeta(item);
+
+        if (item?.processedBlob) {
+            renderSingleProcessedMeta(item);
+        }
+
+        if (item?.validation) {
+            const status = getOriginalStatus(item.validation);
+            setStatusMessage(status, item.validation.is_google && item.validation.is_original ? 'success' : 'warn');
+        }
     }
 }
 
@@ -329,7 +389,7 @@ async function copyImage(item, targetBtn = copyBtn) {
         if (!item.processedBlob) return;
         const data = [new ClipboardItem({ [item.processedBlob.type]: item.processedBlob })];
         await navigator.clipboard.write(data);
-        
+
         const span = targetBtn.querySelector('span');
         const svg = targetBtn.querySelector('svg');
         const originalText = span.textContent;
@@ -337,7 +397,7 @@ async function copyImage(item, targetBtn = copyBtn) {
 
         span.textContent = i18n.t('status.copied');
         svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>';
-        
+
         setTimeout(() => {
             // Restore using i18n to handle potential language switch during timeout
             span.textContent = i18n.t('btn.copy');

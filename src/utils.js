@@ -30,7 +30,7 @@ export async function checkOriginal(file) {
 export function getOriginalStatus({ is_google, is_original }) {
     if (!is_google) return i18n.t('original.not_gemini');
     if (!is_original) return i18n.t('original.not_original');
-    return '';
+    return i18n.t('original.pass');
 }
 
 const statusMessage = document.getElementById('statusMessage');
