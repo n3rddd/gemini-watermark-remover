@@ -49,8 +49,10 @@
     "medium-zoom": "^1.1.0"
   },
   "devDependencies": {
+    "@types/node": "^24.6.0",
     "esbuild": "^0.24.0",
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@10.11.0",
   "pnpm": {
