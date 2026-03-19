@@ -3,12 +3,38 @@ import assert from 'node:assert/strict';
 
 import {
   buildPreviewReplacementCandidates,
+  hideProcessingOverlay,
   inferImageMimeTypeFromBytes,
   intersectCaptureRectWithViewport,
   resolvePreviewReplacementResult,
   resolveVisibleCaptureRect,
+  showProcessingOverlay,
   waitForRenderableImageSize
 } from '../../src/extension/pageImageReplacement.js';
+
+function createMockElement(tagName = 'div') {
+  return {
+    tagName: String(tagName).toUpperCase(),
+    dataset: {},
+    style: {},
+    textContent: '',
+    children: [],
+    parentNode: null,
+    appendChild(child) {
+      child.parentNode = this;
+      this.children.push(child);
+      return child;
+    },
+    removeChild(child) {
+      const index = this.children.indexOf(child);
+      if (index >= 0) {
+        this.children.splice(index, 1);
+        child.parentNode = null;
+      }
+      return child;
+    }
+  };
+}
 
 test('resolveVisibleCaptureRect should prefer Gemini container rect when image rect is too small', () => {
   const container = {
@@ -344,6 +370,83 @@ test('buildPreviewReplacementCandidates should prefer page fetch when an origina
     ['page-fetch', 'rendered-capture']
   );
   assert.equal(await candidates[0].getOriginalBlob(), fetchedBlob);
+});
+
+test('showProcessingOverlay should append one overlay and apply a subdued processing look to the image', () => {
+  const container = createMockElement('div');
+  const image = createMockElement('img');
+  image.style.filter = 'contrast(1.1)';
+
+  const createdElements = [];
+  const createElement = (tagName) => {
+    const element = createMockElement(tagName);
+    createdElements.push(element);
+    return element;
+  };
+
+  showProcessingOverlay(image, {
+    container,
+    createElement
+  });
+  showProcessingOverlay(image, {
+    container,
+    createElement
+  });
+
+  assert.equal(container.children.length, 1);
+  assert.equal(createdElements.length, 1);
+  assert.equal(container.children[0].dataset.gwrProcessingOverlay, 'true');
+  assert.equal(container.children[0].textContent, 'Processing...');
+  assert.match(image.style.filter, /blur/);
+  assert.match(image.style.filter, /brightness/);
+  assert.match(image.style.filter, /contrast\(1\.1\)/);
+});
+
+test('hideProcessingOverlay should remove overlay and restore the previous image filter', () => {
+  const container = createMockElement('div');
+  const image = createMockElement('img');
+  image.style.filter = 'saturate(1.2)';
+
+  showProcessingOverlay(image, {
+    container,
+    createElement: createMockElement
+  });
+
+  hideProcessingOverlay(image, {
+    removeImmediately: true
+  });
+
+  assert.equal(container.children.length, 0);
+  assert.equal(image.style.filter, 'saturate(1.2)');
+  assert.equal(image.dataset.gwrProcessingVisual, undefined);
+});
+
+test('hideProcessingOverlay should fade the overlay out before removing it by default', () => {
+  const container = createMockElement('div');
+  const image = createMockElement('img');
+  const timers = [];
+
+  showProcessingOverlay(image, {
+    container,
+    createElement: createMockElement
+  });
+
+  hideProcessingOverlay(image, {
+    setTimeoutImpl(callback, delay) {
+      timers.push({ callback, delay });
+      return timers.length;
+    }
+  });
+
+  assert.equal(container.children.length, 1);
+  assert.equal(container.children[0].style.opacity, '0');
+  assert.equal(timers.length, 1);
+  assert.ok(timers[0].delay > 0);
+
+  timers[0].callback();
+
+  assert.equal(container.children.length, 0);
+  assert.equal(image.dataset.gwrProcessingVisual, undefined);
 });
 
 test('waitForRenderableImageSize should wait for preview images that become renderable on the next frame', async () => {

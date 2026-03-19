@@ -171,6 +171,9 @@ async function processImageBlob(blob) {
     const originalPageFetch = typeof unsafeWindow?.fetch === 'function'
       ? unsafeWindow.fetch.bind(unsafeWindow)
       : null;
+    const userscriptRequest = typeof GM_xmlhttpRequest === 'function'
+      ? GM_xmlhttpRequest
+      : globalThis.GM_xmlhttpRequest;
     if (canUseInlineWorker()) {
       try {
         workerClient = new InlineWorkerClient(USERSCRIPT_WORKER_CODE);
@@ -198,6 +201,7 @@ async function processImageBlob(blob) {
     installPageImageReplacement({
       logger: console,
       fetchPreviewBlob: createUserscriptBlobFetcher({
+        gmRequest: userscriptRequest,
         fallbackFetch: originalPageFetch
       }),
       removeWatermarkFromBlobImpl: processImageBlob

@@ -14,12 +14,17 @@ import { loadImageFromBlob, processWatermarkBlob, removeWatermarkFromBlob } from
 const PAGE_IMAGE_STATE_KEY = 'gwrPageImageState';
 const PAGE_IMAGE_SOURCE_KEY = 'gwrPageImageSource';
 const PAGE_IMAGE_OBJECT_URL_KEY = 'gwrWatermarkObjectUrl';
+const PROCESSING_OVERLAY_DATA_KEY = 'gwrProcessingOverlay';
+const PROCESSING_VISUAL_DATA_KEY = 'gwrProcessingVisual';
 const OBSERVED_ATTRIBUTES = ['src', 'srcset', 'data-gwr-source-url', 'data-gwr-stable-source'];
 const PAGE_FETCH_REQUEST = 'gwr:page-fetch-request';
 const PAGE_FETCH_RESPONSE = 'gwr:page-fetch-response';
 const MIN_VISIBLE_CAPTURE_EDGE = 32;
 const MIN_VISIBLE_CAPTURE_AREA = MIN_VISIBLE_CAPTURE_EDGE * MIN_VISIBLE_CAPTURE_EDGE;
 const CONTAINER_CAPTURE_AREA_RATIO = 4;
+const PROCESSING_OVERLAY_FADE_MS = 180;
+
+const processingOverlayState = new WeakMap();
 
 function appendLog(onLog, type, payload = {}) {
   if (typeof onLog === 'function') {
@@ -710,6 +715,128 @@ function collectCandidateImages(root) {
   return [...candidates];
 }
 
+function createProcessingOverlayElement(createElement) {
+  const overlay = createElement('div');
+  overlay.dataset[PROCESSING_OVERLAY_DATA_KEY] = 'true';
+  overlay.textContent = 'Processing...';
+
+  if (overlay.style && typeof overlay.style === 'object') {
+    Object.assign(overlay.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px',
+      pointerEvents: 'none',
+      borderRadius: 'inherit',
+      background: 'rgba(17, 17, 17, 0.16)',
+      backdropFilter: 'blur(2px)',
+      color: 'rgba(255, 255, 255, 0.92)',
+      fontSize: '13px',
+      fontWeight: '500',
+      letterSpacing: '0.02em',
+      opacity: '1',
+      transition: `opacity ${PROCESSING_OVERLAY_FADE_MS}ms ease`
+    });
+  }
+
+  return overlay;
+}
+
+function buildProcessingFilter(previousFilter = '') {
+  const tokens = [previousFilter.trim(), 'blur(4px)', 'brightness(0.78)'].filter(Boolean);
+  return tokens.join(' ');
+}
+
+export function showProcessingOverlay(
+  imageElement,
+  {
+    container = getPreferredGeminiImageContainer(imageElement) || imageElement?.parentElement || null,
+    createElement = (tagName) => document.createElement(tagName),
+    clearTimeoutImpl = globalThis.clearTimeout?.bind(globalThis) || null
+  } = {}
+) {
+  if (!imageElement || !container || typeof container.appendChild !== 'function') {
+    return null;
+  }
+
+  const existingState = processingOverlayState.get(imageElement);
+  if (existingState) {
+    if (existingState.hideTimerId !== null && typeof clearTimeoutImpl === 'function') {
+      clearTimeoutImpl(existingState.hideTimerId);
+      existingState.hideTimerId = null;
+      if (existingState.overlay?.style && typeof existingState.overlay.style === 'object') {
+        existingState.overlay.style.opacity = '1';
+      }
+    }
+    return existingState.overlay;
+  }
+
+  const overlay = createProcessingOverlayElement(createElement);
+  const previousFilter = typeof imageElement?.style?.filter === 'string' ? imageElement.style.filter : '';
+  const previousContainerPosition = typeof container?.style?.position === 'string' ? container.style.position : '';
+
+  if (container.style && (!container.style.position || container.style.position === 'static')) {
+    container.style.position = 'relative';
+  }
+  container.appendChild(overlay);
+
+  if (imageElement.style && typeof imageElement.style === 'object') {
+    imageElement.style.filter = buildProcessingFilter(previousFilter);
+  }
+  if (imageElement.dataset) {
+    imageElement.dataset[PROCESSING_VISUAL_DATA_KEY] = 'true';
+  }
+
+  processingOverlayState.set(imageElement, {
+    overlay,
+    container,
+    previousFilter,
+    previousContainerPosition,
+    hideTimerId: null
+  });
+
+  return overlay;
+}
+
+export function hideProcessingOverlay(
+  imageElement,
+  {
+    removeImmediately = false,
+    setTimeoutImpl = globalThis.setTimeout?.bind(globalThis) || null
+  } = {}
+) {
+  const state = processingOverlayState.get(imageElement);
+  if (!state) return;
+
+  const cleanup = () => {
+    if (state.overlay?.parentNode && typeof state.overlay.parentNode.removeChild === 'function') {
+      state.overlay.parentNode.removeChild(state.overlay);
+    }
+    if (imageElement?.style && typeof imageElement.style === 'object') {
+      imageElement.style.filter = state.previousFilter;
+    }
+    if (imageElement?.dataset) {
+      delete imageElement.dataset[PROCESSING_VISUAL_DATA_KEY];
+    }
+    if (state.container?.style && typeof state.container.style === 'object') {
+      state.container.style.position = state.previousContainerPosition;
+    }
+    processingOverlayState.delete(imageElement);
+  };
+
+  if (removeImmediately || typeof setTimeoutImpl !== 'function') {
+    cleanup();
+    return;
+  }
+
+  if (state.overlay?.style && typeof state.overlay.style === 'object') {
+    state.overlay.style.opacity = '0';
+  }
+  state.hideTimerId = setTimeoutImpl(cleanup, PROCESSING_OVERLAY_FADE_MS);
+}
+
 function revokeTrackedObjectUrl(imageElement) {
   const objectUrl = imageElement?.dataset?.[PAGE_IMAGE_OBJECT_URL_KEY];
   if (!objectUrl) return;
@@ -743,6 +870,7 @@ export function createPageImageReplacementController({
     if (processing.has(imageElement)) return;
 
     if (lastSourceUrl && lastSourceUrl !== sourceUrl) {
+      hideProcessingOverlay(imageElement, { removeImmediately: true });
       revokeTrackedObjectUrl(imageElement);
     }
 
@@ -750,6 +878,7 @@ export function createPageImageReplacementController({
     imageElement.dataset.gwrStableSource = sourceUrl;
     imageElement.dataset[PAGE_IMAGE_SOURCE_KEY] = sourceUrl;
     imageElement.dataset[PAGE_IMAGE_STATE_KEY] = 'processing';
+    showProcessingOverlay(imageElement);
 
     const normalizedUrl = normalizeGoogleusercontentImageUrl(sourceUrl);
     logger?.info?.('[Gemini Watermark Remover] page image process start', {
@@ -809,6 +938,7 @@ export function createPageImageReplacementController({
             && diagnostics[0]?.status === 'insufficient';
           if (visibleOnlyInsufficient) {
             imageElement.dataset[PAGE_IMAGE_STATE_KEY] = 'skipped';
+            hideProcessingOverlay(imageElement, { removeImmediately: true });
             skippedReason = 'visible-capture-insufficient';
             logger?.info?.('[Gemini Watermark Remover] page image process skipped', {
               sourceUrl,
@@ -851,6 +981,7 @@ export function createPageImageReplacementController({
       imageElement.dataset[PAGE_IMAGE_OBJECT_URL_KEY] = objectUrl;
       imageElement.dataset[PAGE_IMAGE_STATE_KEY] = 'ready';
       imageElement.src = objectUrl;
+      hideProcessingOverlay(imageElement);
 
       logger?.info?.('[Gemini Watermark Remover] page image process success', {
         sourceUrl,
@@ -876,6 +1007,7 @@ export function createPageImageReplacementController({
         ? error.candidateDiagnosticsSummary
         : '';
       imageElement.dataset[PAGE_IMAGE_STATE_KEY] = 'failed';
+      hideProcessingOverlay(imageElement, { removeImmediately: true });
       logger?.warn?.('[Gemini Watermark Remover] page image process failed', {
         sourceUrl,
         normalizedUrl,
