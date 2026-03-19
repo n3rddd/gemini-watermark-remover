@@ -367,6 +367,32 @@
 - 当前更值得投入的不是继续扩 detection/search，而是优先解决 `5.png` 这一类“检测成立、 suppression 也不低，但残留边缘仍明显”的样本。
 - 这直接支持把下一阶段重点转到“独立残留修复层”。
 
+已额外落出专项研究文档：
+
+- `docs/plans/2026-03-19-5png-residual-repair-plan.md`
+
+## 5.png residual repair 决策回收
+
+本轮对 `5.png` 的 `edge-repair` 支线做过一次主链接入验证：
+
+- 路径是 `soft reference blend`
+- 目标是降低 `safety-near-black` 截停后的边缘残影
+- 实测可以把 `processedSpatialScore` 从 `0.4207` 拉到 `0.3603`
+
+但最终没有保留到主链，原因很直接：
+
+- benchmark 没有发生状态跃迁，仍是 `8/9`
+- `5.png` 仍然落在 `residual-edge`
+- 这条支线增加了额外分支、阈值与维护成本
+- 收益不足以覆盖主链复杂度上升
+
+因此当前收口结论是：
+
+- 保留研究文档和 benchmark 分析
+- 不保留 `edge-repair` 的生产实现
+- `5.png` 继续作为已知 hard case 跟踪
+- 主链继续优先保持简单、稳定、可解释
+
 ## 验收标准
 
 - 现有 `watermarkProcessor` 与 `adaptiveDetector` 核心测试保持通过。

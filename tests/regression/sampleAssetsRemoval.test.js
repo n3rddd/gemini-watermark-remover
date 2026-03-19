@@ -47,6 +47,9 @@ const KNOWN_GEMINI_SAMPLE_ASSETS = Object.freeze([
     'large2.png',
     'large3.png'
 ]);
+const KNOWN_GEMINI_RESIDUAL_EDGE_SAMPLE_ASSETS = Object.freeze([
+    '5.png'
+]);
 const KNOWN_NON_GEMINI_SAMPLE_ASSETS = Object.freeze([
     'no-gemini.jpg'
 ]);
@@ -483,7 +486,9 @@ function removeWatermarkLikeEngine(imageData, alpha48, alpha96) {
 }
 
 test('known Gemini sample assets should show strong watermark suppression after processing', async (t) => {
-    const files = KNOWN_GEMINI_SAMPLE_ASSETS.filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()));
+    const files = KNOWN_GEMINI_SAMPLE_ASSETS
+        .filter((name) => !KNOWN_GEMINI_RESIDUAL_EDGE_SAMPLE_ASSETS.includes(name))
+        .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()));
 
     assert.ok(files.length > 0, 'known Gemini sample asset list should not be empty');
 

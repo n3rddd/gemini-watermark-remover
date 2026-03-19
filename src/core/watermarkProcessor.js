@@ -447,6 +447,15 @@ export function processWatermarkImageData(imageData, options = {}) {
             finalImageData = recalibrated.imageData;
             alphaGain = recalibrated.alphaGain;
             finalProcessedSpatialScore = recalibrated.processedSpatialScore;
+            finalProcessedGradientScore = computeRegionGradientCorrelation({
+                imageData: finalImageData,
+                alphaMap,
+                region: {
+                    x: position.x,
+                    y: position.y,
+                    size: position.width
+                }
+            });
             suppressionGain = recalibrated.suppressionGain;
             source = source === 'adaptive' ? 'adaptive+gain' : `${source}+gain`;
         }
