@@ -13,4 +13,5 @@ test('userscript metadata should explicitly match Gemini app entry routes', () =
     assert.match(buildScript, /\/\/ @match\s+https:\/\/business\.gemini\.google\/\*/);
     assert.match(buildScript, /\/\/ @grant\s+unsafeWindow/);
     assert.match(buildScript, /\/\/ @grant\s+GM_xmlhttpRequest/);
+    assert.match(buildScript, /\/\/ @run-at\s+document-start/);
 });

@@ -14,6 +14,9 @@ import {
   createPageProcessBridgeClient
 } from './pageProcessBridge.js';
 import {
+  requestGeminiConversationHistoryBindings
+} from './historyBindingBootstrap.js';
+import {
   installUserscriptProcessBridge
 } from './processBridge.js';
 import { installInjectedPageProcessorRuntime } from './pageProcessorRuntime.js';
@@ -64,32 +67,12 @@ function shouldSkipFrame(targetWindow) {
       env: globalThis,
       logger: console
     });
-    await processingRuntime.initialize();
-    await installInjectedPageProcessorRuntime({
-      targetWindow,
-      scriptCode: USERSCRIPT_PAGE_PROCESSOR_CODE,
-      logger: console
-    });
-    const pageProcessClient = createPageProcessBridgeClient({
-      targetWindow,
-      logger: console,
-      fallbackProcessWatermarkBlob: processingRuntime.processWatermarkBlob,
-      fallbackRemoveWatermarkFromBlob: processingRuntime.removeWatermarkFromBlob
-    });
-
-    installUserscriptProcessBridge({
-      targetWindow,
-      processWatermarkBlob: processingRuntime.processWatermarkBlob,
-      removeWatermarkFromBlob: processingRuntime.removeWatermarkFromBlob,
-      logger: console
-    });
-
-    const pageImageReplacementController = installPageImageReplacement({
-      logger: console,
-      fetchPreviewBlob: previewBlobFetcher,
-      processWatermarkBlobImpl: pageProcessClient.processWatermarkBlob,
-      removeWatermarkFromBlobImpl: pageProcessClient.removeWatermarkFromBlob
-    });
+    let pageProcessClient = null;
+    const removeWatermarkFromBestAvailablePath = (blob, options = {}) => (
+      pageProcessClient?.removeWatermarkFromBlob
+        ? pageProcessClient.removeWatermarkFromBlob(blob, options)
+        : processingRuntime.removeWatermarkFromBlob(blob, options)
+    );
 
     const handleOriginalAssetDiscovered = ({ normalizedUrl, discoveredUrl, intentMetadata }) => {
       const sourceUrl = normalizedUrl || discoveredUrl || '';
@@ -137,7 +120,7 @@ function shouldSkipFrame(targetWindow) {
       intentGate: downloadIntentGate,
       isTargetUrl: isGeminiOriginalAssetUrl,
       normalizeUrl: normalizeGoogleusercontentImageUrl,
-      processBlob: pageProcessClient.removeWatermarkFromBlob,
+      processBlob: removeWatermarkFromBestAvailablePath,
       onOriginalAssetDiscovered: ({ normalizedUrl, intentMetadata }) => {
         handleOriginalAssetDiscovered({
           normalizedUrl,
@@ -145,6 +128,37 @@ function shouldSkipFrame(targetWindow) {
         });
       },
       logger: console
+    });
+    await requestGeminiConversationHistoryBindings({
+      targetWindow,
+      fetchImpl: targetWindow.fetch.bind(targetWindow),
+      logger: console
+    });
+    await processingRuntime.initialize();
+    await installInjectedPageProcessorRuntime({
+      targetWindow,
+      scriptCode: USERSCRIPT_PAGE_PROCESSOR_CODE,
+      logger: console
+    });
+    pageProcessClient = createPageProcessBridgeClient({
+      targetWindow,
+      logger: console,
+      fallbackProcessWatermarkBlob: processingRuntime.processWatermarkBlob,
+      fallbackRemoveWatermarkFromBlob: processingRuntime.removeWatermarkFromBlob
+    });
+
+    installUserscriptProcessBridge({
+      targetWindow,
+      processWatermarkBlob: processingRuntime.processWatermarkBlob,
+      removeWatermarkFromBlob: processingRuntime.removeWatermarkFromBlob,
+      logger: console
+    });
+
+    const pageImageReplacementController = installPageImageReplacement({
+      logger: console,
+      fetchPreviewBlob: previewBlobFetcher,
+      processWatermarkBlobImpl: pageProcessClient.processWatermarkBlob,
+      removeWatermarkFromBlobImpl: pageProcessClient.removeWatermarkFromBlob
     });
 
     window.addEventListener('beforeunload', () => {

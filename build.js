@@ -48,7 +48,7 @@ const userscriptBanner = `// ==UserScript==
 // @connect      googleusercontent.com
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
-// @run-at       document-end
+// @run-at       document-start
 // ==/UserScript==
 `;
 
@@ -198,6 +198,17 @@ const userscriptWorkerBuild = await esbuild.build({
 });
 const userscriptWorkerCode = userscriptWorkerBuild.outputFiles?.[0]?.text || '';
 
+const userscriptPageProcessorBuild = await esbuild.build({
+  ...commonConfig,
+  entryPoints: ['src/page/pageProcessorBootstrap.js'],
+  format: 'iife',
+  platform: 'browser',
+  target: ['es2020'],
+  write: false,
+  sourcemap: false,
+});
+const userscriptPageProcessorCode = userscriptPageProcessorBuild.outputFiles?.[0]?.text || '';
+
 // Build userscript
 const userscriptCtx = await esbuild.context({
   ...commonConfig,
@@ -208,6 +219,7 @@ const userscriptCtx = await esbuild.context({
   minify: false,
   define: {
     __US_WORKER_CODE__: JSON.stringify(userscriptWorkerCode),
+    __US_PAGE_PROCESSOR_CODE__: JSON.stringify(userscriptPageProcessorCode),
     __US_INLINE_WORKER_ENABLED__: 'false'
   }
 });

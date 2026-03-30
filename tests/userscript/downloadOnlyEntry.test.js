@@ -15,6 +15,7 @@ test('userscript entry should install download hook and page image replacement w
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'createGeminiDownloadRpcFetchHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadRpcXmlHttpRequestHook'), true);
   assert.equal(hasImportedBinding(source, '../shared/pageImageReplacement.js', 'installPageImageReplacement'), true);
+  assert.equal(hasImportedBinding(source, './historyBindingBootstrap.js', 'requestGeminiConversationHistoryBindings'), true);
   assert.equal(hasImportedBinding(source, './processBridge.js', 'installUserscriptProcessBridge'), true);
    assert.equal(hasImportedBinding(source, './pageProcessBridge.js', 'createPageProcessBridgeClient'), true);
    assert.equal(hasImportedBinding(source, './pageProcessorRuntime.js', 'installInjectedPageProcessorRuntime'), true);
@@ -61,10 +62,37 @@ test('userscript entry should route page image processing through page runtime b
   assert.match(installDownloadHookCall, /isTargetUrl:\s*isGeminiOriginalAssetUrl/);
   assert.match(installDownloadRpcHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
   assert.match(installDownloadRpcXhrHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
-  assert.match(installDownloadHookCall, /processBlob:\s*pageProcessClient\.removeWatermarkFromBlob/);
+  assert.match(normalizeWhitespace(source), /const removeWatermarkFromBestAvailablePath = \(blob,\s*options = \{\}\) => \(\s*pageProcessClient\?\.removeWatermarkFromBlob\s*\?\s*pageProcessClient\.removeWatermarkFromBlob\(blob,\s*options\)\s*:\s*processingRuntime\.removeWatermarkFromBlob\(blob,\s*options\)\s*\)/);
+  assert.match(installDownloadHookCall, /processBlob:\s*removeWatermarkFromBestAvailablePath/);
   assert.match(installPageReplacementCall, /processWatermarkBlobImpl:\s*pageProcessClient\.processWatermarkBlob/);
   assert.match(installPageReplacementCall, /removeWatermarkFromBlobImpl:\s*pageProcessClient\.removeWatermarkFromBlob/);
   assert.doesNotMatch(installPageReplacementCall, /bridgeClient\./);
+});
+
+test('userscript entry should install original-asset discovery hooks before async runtime initialization', () => {
+  const source = normalizeWhitespace(loadModuleSource('../../src/userscript/index.js', import.meta.url));
+
+  const rpcHookIndex = source.indexOf('const downloadRpcFetch = createGeminiDownloadRpcFetchHook(');
+  const xhrHookIndex = source.indexOf('installGeminiDownloadRpcXmlHttpRequestHook(targetWindow,');
+  const downloadHookIndex = source.indexOf('installGeminiDownloadHook(targetWindow,');
+  const historyBootstrapIndex = source.indexOf('await requestGeminiConversationHistoryBindings(');
+  const runtimeInitIndex = source.indexOf('await processingRuntime.initialize()');
+  const pageRuntimeInitIndex = source.indexOf('await installInjectedPageProcessorRuntime(');
+
+  assert.ok(rpcHookIndex >= 0, 'expected rpc fetch hook setup in userscript entry');
+  assert.ok(xhrHookIndex >= 0, 'expected rpc xhr hook setup in userscript entry');
+  assert.ok(downloadHookIndex >= 0, 'expected download hook setup in userscript entry');
+  assert.ok(historyBootstrapIndex >= 0, 'expected conversation history bootstrap in userscript entry');
+  assert.ok(runtimeInitIndex >= 0, 'expected processing runtime initialization in userscript entry');
+  assert.ok(pageRuntimeInitIndex >= 0, 'expected page runtime initialization in userscript entry');
+  assert.ok(rpcHookIndex < runtimeInitIndex, 'rpc fetch hook should be installed before processing runtime initialize await');
+  assert.ok(xhrHookIndex < runtimeInitIndex, 'rpc xhr hook should be installed before processing runtime initialize await');
+  assert.ok(downloadHookIndex < runtimeInitIndex, 'download hook should be installed before processing runtime initialize await');
+  assert.ok(historyBootstrapIndex < runtimeInitIndex, 'conversation history bootstrap should run before processing runtime initialize await');
+  assert.ok(rpcHookIndex < pageRuntimeInitIndex, 'rpc fetch hook should be installed before page runtime injection await');
+  assert.ok(xhrHookIndex < pageRuntimeInitIndex, 'rpc xhr hook should be installed before page runtime injection await');
+  assert.ok(downloadHookIndex < pageRuntimeInitIndex, 'download hook should be installed before page runtime injection await');
+  assert.ok(historyBootstrapIndex < pageRuntimeInitIndex, 'conversation history bootstrap should run before page runtime injection await');
 });
 
 test('userscript entry should delegate watermark runtime logic to processingRuntime module', () => {
