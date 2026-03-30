@@ -20,6 +20,7 @@ const KNOWN_GEMINI_SAMPLE_ASSETS = Object.freeze([
     '5.webp',
     '6.png',
     '7.png',
+    '8.png',
     'large.png',
     'large2.png',
     'large3.png'

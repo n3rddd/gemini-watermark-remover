@@ -52,6 +52,8 @@ const PREVIEW_EDGE_CLEANUP_AGGRESSIVE_PRESETS = Object.freeze([
         maxAcceptedSpatial: 0.18
     }
 ]);
+const FIRST_PASS_SIGN_FLIP_GRADIENT_THRESHOLD = 0.08;
+const FIRST_PASS_SIGN_FLIP_MIN_GRADIENT_DROP = 0.2;
 
 function nowMs() {
     if (typeof globalThis.performance?.now === 'function') {
@@ -155,6 +157,22 @@ function shouldRecalibrateAlphaStrength({ originalScore, processedScore, suppres
     return originalScore >= 0.6 &&
         processedScore >= RESIDUAL_RECALIBRATION_THRESHOLD &&
         suppressionGain <= MIN_SUPPRESSION_FOR_SKIP_RECALIBRATION;
+}
+
+function shouldStopAfterFirstPass({
+    originalSpatialScore,
+    originalGradientScore,
+    firstPassSpatialScore,
+    firstPassGradientScore
+}) {
+    if (Math.abs(firstPassSpatialScore) <= 0.25) {
+        return true;
+    }
+
+    return originalSpatialScore >= 0 &&
+        firstPassSpatialScore < 0 &&
+        firstPassGradientScore <= FIRST_PASS_SIGN_FLIP_GRADIENT_THRESHOLD &&
+        (originalGradientScore - firstPassGradientScore) >= FIRST_PASS_SIGN_FLIP_MIN_GRADIENT_DROP;
 }
 
 function refineSubpixelOutline({
@@ -623,7 +641,12 @@ export function processWatermarkImageData(imageData, options = {}) {
         options.maxPasses ?? (processingProfile === 'preview-fast' ? 1 : 4)
     );
     const remainingPasses = Math.max(0, totalMaxPasses - 1);
-    const firstPassClearedResidual = Math.abs(firstPassSpatialScore) <= 0.25;
+    const firstPassClearedResidual = shouldStopAfterFirstPass({
+        originalSpatialScore,
+        originalGradientScore,
+        firstPassSpatialScore,
+        firstPassGradientScore
+    });
     const extraPassStartedAt = nowMs();
     const extraPassResult = remainingPasses > 0 && !firstPassClearedResidual
         ? removeRepeatedWatermarkLayers({

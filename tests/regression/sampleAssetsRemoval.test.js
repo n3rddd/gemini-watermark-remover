@@ -43,6 +43,7 @@ const KNOWN_GEMINI_SAMPLE_ASSETS = Object.freeze([
     '5.webp',
     '6.png',
     '7.png',
+    '8.png',
     'large.png',
     'large2.png',
     'large3.png'
@@ -646,6 +647,65 @@ test('7.png should remove a shifted bottom-right watermark instead of skipping t
             `expected 7.png y position to stay near the default anchor, got ${position.y}`
         );
         assert.ok(residual < 0.22, `expected residual watermark signal < 0.22, got ${residual}`);
+    } finally {
+        await browser.close();
+    }
+});
+
+test('8.png should stop after the first pass when extra passes only reintroduce watermark edges', async (t) => {
+    let browser;
+    try {
+        browser = await chromium.launch({ headless: true });
+    } catch (error) {
+        if (isMissingPlaywrightExecutableError(error)) {
+            t.skip('Playwright browser binaries are missing in this environment');
+            return;
+        }
+        throw error;
+    }
+
+    const page = await browser.newPage();
+
+    try {
+        const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
+        const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
+        const filePath = path.join(SAMPLE_DIR, '8.png');
+        const imageData = await decodeImageDataInPage(page, filePath);
+        const firstPassOnly = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            maxPasses: 1,
+            getAlphaMap: (size) => size === 48 ? alpha48 : interpolateAlphaMap(alpha96, 96, size)
+        });
+        const fullResult = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            maxPasses: 4,
+            getAlphaMap: (size) => size === 48 ? alpha48 : interpolateAlphaMap(alpha96, 96, size)
+        });
+        const position = fullResult.meta.position;
+        const alphaMap = fullResult.meta.size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, fullResult.meta.size);
+        const firstPassGradient = computeRegionGradientCorrelation({
+            imageData: firstPassOnly.imageData,
+            alphaMap,
+            region: { x: position.x, y: position.y, size: position.width }
+        });
+        const finalGradient = computeRegionGradientCorrelation({
+            imageData: fullResult.imageData,
+            alphaMap,
+            region: { x: position.x, y: position.y, size: position.width }
+        });
+
+        assert.equal(fullResult.meta.applied, true, 'expected 8.png to enter removal pipeline');
+        assert.equal(
+            fullResult.meta.passCount,
+            1,
+            `expected 8.png to stop after the first pass, got passCount=${fullResult.meta.passCount}, stop=${fullResult.meta.passStopReason}`
+        );
+        assert.ok(
+            finalGradient <= firstPassGradient + 0.05,
+            `expected extra passes to not reintroduce edge signal, firstPassGradient=${firstPassGradient}, finalGradient=${finalGradient}`
+        );
     } finally {
         await browser.close();
     }

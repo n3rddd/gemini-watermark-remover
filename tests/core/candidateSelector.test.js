@@ -389,3 +389,50 @@ test('selectInitialCandidate should skip preview-fast gain search when preview a
         `expected preview-fast to skip gain sweep for already-clean preview anchor, source=${result.source}`
     );
 });
+
+test('selectInitialCandidate should keep searching nearby on tall portrait images when the initial direct match is still misaligned', () => {
+    const alpha96 = createSyntheticAlphaMap(96);
+    const alpha48 = interpolateAlphaMap(alpha96, 96, 48);
+    const imageData = createPatternImageData(768, 1376);
+    const config = {
+        logoSize: 96,
+        marginRight: 64,
+        marginBottom: 64
+    };
+    const position = {
+        x: imageData.width - config.marginRight - config.logoSize,
+        y: imageData.height - config.marginBottom - config.logoSize,
+        width: config.logoSize,
+        height: config.logoSize
+    };
+    const truePosition = {
+        x: 768 - 59 - 96,
+        y: 1376 - 59 - 96,
+        width: 96,
+        height: 96
+    };
+
+    applySyntheticWatermark(imageData, alpha96, truePosition, 1);
+
+    const result = selectInitialCandidate({
+        originalImageData: imageData,
+        config,
+        position,
+        alpha48,
+        alpha96,
+        getAlphaMap: (size) => interpolateAlphaMap(alpha96, 96, size),
+        allowAdaptiveSearch: false,
+        alphaGainCandidates: [1]
+    });
+
+    assert.ok(result.selectedTrial, 'expected a nearby standard candidate to be selected');
+    assert.equal(result.selectedTrial.provenance?.localShift, true);
+    assert.ok(
+        Math.abs(result.position.x - truePosition.x) <= 1,
+        `expected x to recover toward ${truePosition.x}, got ${result.position.x}`
+    );
+    assert.ok(
+        Math.abs(result.position.y - truePosition.y) <= 1,
+        `expected y to recover toward ${truePosition.y}, got ${result.position.y}`
+    );
+});

@@ -1,5 +1,8 @@
-import { computeRegionSpatialCorrelation } from './adaptiveDetector.js';
-import { resolveOfficialGeminiWatermarkConfig } from './geminiSizeCatalog.js';
+import { computeRegionSpatialCorrelation, interpolateAlphaMap } from './adaptiveDetector.js';
+import {
+    resolveOfficialGeminiSearchConfigs,
+    resolveOfficialGeminiWatermarkConfig
+} from './geminiSizeCatalog.js';
 
 /**
  * Detect watermark configuration based on image size
@@ -56,7 +59,10 @@ function getStandardConfig(size) {
 }
 
 function getAlphaMapForConfig(config, alpha48, alpha96) {
-    return config.logoSize === 96 ? alpha96 : alpha48;
+    if (!config) return null;
+    if (config.logoSize === 48) return alpha48;
+    if (config.logoSize === 96) return alpha96;
+    return alpha96 ? interpolateAlphaMap(alpha96, 96, config.logoSize) : null;
 }
 
 function isRegionInsideImage(imageData, region) {
@@ -83,37 +89,58 @@ export function resolveInitialStandardConfig({
     const fallbackConfig = getStandardConfig(48);
     const primaryConfig = defaultConfig.logoSize === 96 ? getStandardConfig(96) : fallbackConfig;
     const alternateConfig = defaultConfig.logoSize === 96 ? fallbackConfig : getStandardConfig(96);
+    const candidateConfigs = [primaryConfig, alternateConfig];
 
-    const primaryRegion = calculateWatermarkPosition(imageData.width, imageData.height, primaryConfig);
-    const alternateRegion = calculateWatermarkPosition(imageData.width, imageData.height, alternateConfig);
-
-    if (!isRegionInsideImage(imageData, primaryRegion)) return defaultConfig;
-
-    const primaryScore = computeRegionSpatialCorrelation({
-        imageData,
-        alphaMap: getAlphaMapForConfig(primaryConfig, alpha48, alpha96),
-        region: {
-            x: primaryRegion.x,
-            y: primaryRegion.y,
-            size: primaryRegion.width
+    for (const officialConfig of resolveOfficialGeminiSearchConfigs(imageData.width, imageData.height, {
+        limit: 1
+    })) {
+        if (!candidateConfigs.some((candidate) => (
+            candidate.logoSize === officialConfig.logoSize &&
+            candidate.marginRight === officialConfig.marginRight &&
+            candidate.marginBottom === officialConfig.marginBottom
+        ))) {
+            candidateConfigs.push(officialConfig);
         }
-    });
+    }
 
-    if (!isRegionInsideImage(imageData, alternateRegion)) return primaryConfig;
+    let bestConfig = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
 
-    const alternateScore = computeRegionSpatialCorrelation({
-        imageData,
-        alphaMap: getAlphaMapForConfig(alternateConfig, alpha48, alpha96),
-        region: {
-            x: alternateRegion.x,
-            y: alternateRegion.y,
-            size: alternateRegion.width
+    for (const candidateConfig of candidateConfigs) {
+        const candidateRegion = calculateWatermarkPosition(
+            imageData.width,
+            imageData.height,
+            candidateConfig
+        );
+        if (!isRegionInsideImage(imageData, candidateRegion)) continue;
+
+        const alphaMap = getAlphaMapForConfig(candidateConfig, alpha48, alpha96);
+        if (!alphaMap) continue;
+
+        const candidateScore = computeRegionSpatialCorrelation({
+            imageData,
+            alphaMap,
+            region: {
+                x: candidateRegion.x,
+                y: candidateRegion.y,
+                size: candidateRegion.width
+            }
+        });
+
+        if (!bestConfig) {
+            bestConfig = candidateConfig;
+            bestScore = candidateScore;
+            continue;
         }
-    });
 
-    const shouldSwitch =
-        alternateScore >= minSwitchScore &&
-        alternateScore > primaryScore + minScoreDelta;
+        if (
+            candidateScore >= minSwitchScore &&
+            candidateScore > bestScore + minScoreDelta
+        ) {
+            bestConfig = candidateConfig;
+            bestScore = candidateScore;
+        }
+    }
 
-    return shouldSwitch ? alternateConfig : primaryConfig;
+    return bestConfig ?? defaultConfig;
 }
