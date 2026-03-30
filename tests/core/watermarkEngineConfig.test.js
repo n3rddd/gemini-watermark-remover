@@ -107,3 +107,24 @@ test('resolveInitialStandardConfig should keep 48 config when it already matches
     assert.equal(resolved.marginRight, 32);
     assert.equal(resolved.marginBottom, 32);
 });
+
+test('resolveInitialStandardConfig should promote near-official portrait previews to the catalog-sized anchor', () => {
+    const imageData = createImageData(1000, 1792, 16);
+    const alpha48 = createSyntheticAlpha(48);
+    const alpha96 = createSyntheticAlpha(96);
+
+    const trueConfig = { logoSize: 125, marginRight: 83, marginBottom: 83 };
+    applyWatermark(imageData, createSyntheticAlpha(125), calculateWatermarkPosition(imageData.width, imageData.height, trueConfig));
+
+    const defaultConfig = detectWatermarkConfig(imageData.width, imageData.height);
+    assert.equal(defaultConfig.logoSize, 48);
+
+    const resolved = resolveInitialStandardConfig({
+        imageData,
+        defaultConfig,
+        alpha48,
+        alpha96
+    });
+
+    assert.deepEqual(resolved, trueConfig);
+});

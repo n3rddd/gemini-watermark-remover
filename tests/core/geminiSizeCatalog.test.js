@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    OFFICIAL_GEMINI_IMAGE_SIZES,
     matchOfficialGeminiImageSize,
     resolveGeminiWatermarkSearchConfigs,
     resolveOfficialGeminiSearchConfigs,
@@ -69,4 +70,23 @@ test('resolveGeminiWatermarkSearchConfigs should keep default config first and d
         )).length,
         1
     );
+});
+
+test('resolveOfficialGeminiWatermarkConfig should cover every documented portrait Gemini size', () => {
+    const portraitEntries = OFFICIAL_GEMINI_IMAGE_SIZES.filter((entry) => entry.width < entry.height);
+
+    assert.ok(portraitEntries.length > 0);
+
+    for (const entry of portraitEntries) {
+        const config = resolveOfficialGeminiWatermarkConfig(entry.width, entry.height);
+        const expected = entry.resolutionTier === '0.5k'
+            ? { logoSize: 48, marginRight: 32, marginBottom: 32 }
+            : { logoSize: 96, marginRight: 64, marginBottom: 64 };
+
+        assert.deepEqual(
+            config,
+            expected,
+            `${entry.modelFamily} ${entry.aspectRatio} ${entry.width}x${entry.height}`
+        );
+    }
 });

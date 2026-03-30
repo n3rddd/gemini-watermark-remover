@@ -28,6 +28,8 @@ const VALIDATION_MAX_GRADIENT_INCREASE = 0.04;
 const VALIDATION_MIN_CONFIDENCE_FOR_ADAPTIVE_TRIAL = 0.25;
 const STANDARD_FAST_PATH_RESIDUAL_THRESHOLD = 0.22;
 const STANDARD_FAST_PATH_GRADIENT_THRESHOLD = 0.08;
+const STANDARD_NEARBY_SEARCH_RESIDUAL_THRESHOLD = 0.18;
+const STANDARD_NEARBY_SEARCH_GRADIENT_THRESHOLD = 0.05;
 const TEMPLATE_ALIGN_SHIFTS = [-0.5, -0.25, 0, 0.25, 0.5];
 const TEMPLATE_ALIGN_SCALES = [0.99, 1, 1.01];
 const STANDARD_NEARBY_SHIFTS = [-12, -8, -4, 0, 4, 8, 12];
@@ -132,6 +134,17 @@ function shouldEscalateSearch(candidate) {
 
     return Math.abs(candidate.processedSpatialScore) > STANDARD_FAST_PATH_RESIDUAL_THRESHOLD ||
         Math.max(0, candidate.processedGradientScore) > STANDARD_FAST_PATH_GRADIENT_THRESHOLD;
+}
+
+function shouldSearchNearbyStandardCandidate(candidate, originalImageData) {
+    if (!candidate) return true;
+
+    return Number(candidate.position?.width) >= 72 &&
+        Number(originalImageData?.height) > Number(originalImageData?.width) * 1.25 &&
+        (
+            Math.abs(candidate.processedSpatialScore) > STANDARD_NEARBY_SEARCH_RESIDUAL_THRESHOLD ||
+            Math.max(0, candidate.processedGradientScore) > STANDARD_NEARBY_SEARCH_GRADIENT_THRESHOLD
+        );
 }
 
 export function resolveAlphaMapForSize(size, { alpha48, alpha96, getAlphaMap } = {}) {
@@ -885,18 +898,25 @@ export function selectInitialCandidate({
         }
     }
 
-    if (!preferPreviewFastPath && !baseCandidate && !hasReliableAdaptiveWatermarkSignal(adaptive)) {
+    if (
+        !preferPreviewFastPath &&
+        !hasReliableAdaptiveWatermarkSignal(adaptive) &&
+        shouldSearchNearbyStandardCandidate(baseCandidate, originalImageData)
+    ) {
         const nearbyStandardCandidate = searchNearbyStandardCandidate({
             originalImageData,
             candidateSeeds: standardCandidateSeeds,
             adaptiveConfidence
         });
         if (nearbyStandardCandidate) {
-            baseCandidate = {
+            const previousCandidate = baseCandidate;
+            baseCandidate = pickBetterCandidate(baseCandidate, {
                 ...nearbyStandardCandidate,
                 source: `${nearbyStandardCandidate.source}+validated`
-            };
-            baseDecisionTier = 'validated-match';
+            }, 0.002);
+            if (baseCandidate !== previousCandidate && baseCandidate) {
+                baseDecisionTier = 'validated-match';
+            }
         }
     }
 
