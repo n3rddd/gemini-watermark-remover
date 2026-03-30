@@ -13,6 +13,7 @@ test('userscript entry should install download hook and page image replacement w
 
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadHook'), true);
   assert.equal(hasImportedBinding(source, './downloadHook.js', 'createGeminiDownloadRpcFetchHook'), true);
+  assert.equal(hasImportedBinding(source, './downloadHook.js', 'installGeminiDownloadRpcXmlHttpRequestHook'), true);
   assert.equal(hasImportedBinding(source, '../shared/pageImageReplacement.js', 'installPageImageReplacement'), true);
   assert.equal(hasImportedBinding(source, './processBridge.js', 'installUserscriptProcessBridge'), true);
    assert.equal(hasImportedBinding(source, './pageProcessBridge.js', 'createPageProcessBridgeClient'), true);
@@ -52,12 +53,14 @@ test('userscript entry should route page image processing through page runtime b
   const source = loadModuleSource('../../src/userscript/index.js', import.meta.url);
   const installDownloadHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiDownloadHook'));
   const installDownloadRpcHookCall = normalizeWhitespace(getCallSource(source, 'createGeminiDownloadRpcFetchHook'));
+  const installDownloadRpcXhrHookCall = normalizeWhitespace(getCallSource(source, 'installGeminiDownloadRpcXmlHttpRequestHook'));
   const installPageReplacementCall = normalizeWhitespace(getCallSource(source, 'installPageImageReplacement'));
 
   assert.equal(hasImportedBinding(source, './urlUtils.js', 'isGeminiOriginalAssetUrl'), true);
   assert.match(normalizeWhitespace(source), /await installInjectedPageProcessorRuntime\(/);
   assert.match(installDownloadHookCall, /isTargetUrl:\s*isGeminiOriginalAssetUrl/);
   assert.match(installDownloadRpcHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
+  assert.match(installDownloadRpcXhrHookCall, /getIntentMetadata:\s*\(\)\s*=>\s*downloadIntentGate\.getRecentIntentMetadata\(\)/);
   assert.match(installDownloadHookCall, /processBlob:\s*pageProcessClient\.removeWatermarkFromBlob/);
   assert.match(installPageReplacementCall, /processWatermarkBlobImpl:\s*pageProcessClient\.processWatermarkBlob/);
   assert.match(installPageReplacementCall, /removeWatermarkFromBlobImpl:\s*pageProcessClient\.removeWatermarkFromBlob/);

@@ -4,8 +4,11 @@ import assert from 'node:assert/strict';
 import {
   createGeminiDownloadFetchHook,
   createGeminiDownloadRpcFetchHook,
+  installGeminiDownloadRpcXmlHttpRequestHook,
   createGeminiDownloadIntentGate,
   extractGeminiAssetIdsFromRpcRequestBody,
+  extractGeminiAssetBindingsFromResponseText,
+  extractGeminiGeneratedAssetUrlsFromResponseText,
   extractGeminiOriginalAssetUrlsFromResponseText,
   isGeminiDownloadRpcUrl,
   isGeminiDownloadActionTarget
@@ -471,6 +474,14 @@ test('extractGeminiOriginalAssetUrlsFromResponseText should recover googleuserco
   ]);
 });
 
+test('extractGeminiGeneratedAssetUrlsFromResponseText should recover normalized Gemini preview asset urls from escaped rpc payloads', () => {
+  const responseText = ')]}\'\n123\n[["wrb.fr","hNvQHb","[[[[\\\"c_cdec91057e5fdcaf\\\",\\\"r_d7ef418292ede05c\\\",\\\"rc_2315ec0b5621fce5\\\"],[[[\\\"rc_1dfd19ae1152c42a\\\",[\\\"http://googleusercontent.com/image_generation_content/1\\\"],[null,null,null,null,[null,null,8]],null,null,null,null,null,[2],\\\"und\\\",null,null,[null,null,null,null,null,null,[3],[[[[null,null,null,[null,1,\\\"2399453241942556798.png\\\",\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/gg\\\\/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ\\\"]]]]]]]]]",null,null,null,"generic"]]';
+
+  assert.deepEqual(extractGeminiGeneratedAssetUrlsFromResponseText(responseText), [
+    'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0'
+  ]);
+});
+
 test('extractGeminiAssetIdsFromRpcRequestBody should recover response draft and conversation ids from encoded batchexecute payload', () => {
   const requestBody = 'f.req=%5Bnull%2C%22%5Bnull%2C%5B%5C%22image_generation_content%5C%22%2C0%2C%5C%22r_d7ef418292ede05c%5C%22%2C%5C%22rc_2315ec0b5621fce5%5C%22%2C%5C%22c_cdec91057e5fdcaf%5C%22%5D%5D%22%5D&at=abc';
 
@@ -479,6 +490,32 @@ test('extractGeminiAssetIdsFromRpcRequestBody should recover response draft and 
     draftId: 'rc_2315ec0b5621fce5',
     conversationId: 'c_cdec91057e5fdcaf'
   });
+});
+
+test('extractGeminiAssetBindingsFromResponseText should pair response asset ids with discovered Gemini asset urls', () => {
+  const responseText = ')]}\'\n123\n[["wrb.fr","hNvQHb","[[[[\\\"c_cdec91057e5fdcaf\\\",\\\"r_d7ef418292ede05c\\\",\\\"rc_2315ec0b5621fce5\\\"],[[[\\\"rc_1dfd19ae1152c42a\\\",[\\\"http://googleusercontent.com/image_generation_content/1\\\"],[null,null,null,null,[null,null,8]],null,null,null,null,null,[2],\\\"und\\\",null,null,[null,null,null,null,null,null,[3],[[[[null,null,null,[null,1,\\\"2399453241942556798.png\\\",\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/gg\\\\/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ\\\"]]]]]]]]]",null,null,null,"generic"]]';
+
+  assert.deepEqual(extractGeminiAssetBindingsFromResponseText(responseText), [{
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0',
+    assetIds: {
+      responseId: 'r_d7ef418292ede05c',
+      draftId: 'rc_2315ec0b5621fce5',
+      conversationId: 'c_cdec91057e5fdcaf'
+    }
+  }]);
+});
+
+test('extractGeminiAssetBindingsFromResponseText should still recover a usable binding when history tuples and content blocks are offset', () => {
+  const responseText = ')]}\'\n123\n[["wrb.fr","hNvQHb","[[[[\\\"c_cdec91057e5fdcaf\\\",\\\"r_134f73283381ab82\\\",\\\"rc_e48e309fb05102e2\\\"],[\\\"c_cdec91057e5fdcaf\\\",\\\"r_8564c2370ec24b62\\\",\\\"rc_1dfd19ae1152c42a\\\"],[[\\\"性感，白皙，清纯\\\"],1,null,0,\\\"fbb127bbb056c959\\\",0,14,null,false,null,[]],[[[\\\"rc_e48e309fb05102e2\\\",[\\\"http://googleusercontent.com/image_generation_content/2\\\"],[null,null,null,null,[null,null,8]],null,null,null,null,null,[2],\\\"und\\\",null,null,[null,null,null,null,null,null,[3],[[[[null,null,null,[null,1,\\\"8289315647847911722.png\\\",\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/gg\\\\/AMW1TPoUzF0DJQYiXY7_Zpzxr1R77yq-C47kmFP35SHjv1jiPds5Sim4iy_N2Hho7mEicd7kf5vfjCCjCpn1c7IbqVbvkahV2G3Ciea0Z50SIDu_uL0JWCqI5OQRUZQnP99am2fIo41kPSPjQxRl7N_nVKHrtSn6Tgks6pBGfguzfdBfFTTrhsLJXMfC3ZehqcPKBj7X3yhgthbJCBMqo7VuqGkNNMaUawRdqEKGD0AXksBQN6FBSj1cy8sHPyApHK-XLMmQnb3BNwsayLUetPB3gkaw-qY-qTmjaN_zXHeJzW4_3YvB1aQ5hO-33kmP896VfyWQLiWeuInMem2cooiP54zt\\\"]]]]]]]]]",null,null,null,"generic"]]';
+
+  assert.deepEqual(extractGeminiAssetBindingsFromResponseText(responseText), [{
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPoUzF0DJQYiXY7_Zpzxr1R77yq-C47kmFP35SHjv1jiPds5Sim4iy_N2Hho7mEicd7kf5vfjCCjCpn1c7IbqVbvkahV2G3Ciea0Z50SIDu_uL0JWCqI5OQRUZQnP99am2fIo41kPSPjQxRl7N_nVKHrtSn6Tgks6pBGfguzfdBfFTTrhsLJXMfC3ZehqcPKBj7X3yhgthbJCBMqo7VuqGkNNMaUawRdqEKGD0AXksBQN6FBSj1cy8sHPyApHK-XLMmQnb3BNwsayLUetPB3gkaw-qY-qTmjaN_zXHeJzW4_3YvB1aQ5hO-33kmP896VfyWQLiWeuInMem2cooiP54zt=s0',
+    assetIds: {
+      responseId: 'r_8564c2370ec24b62',
+      draftId: 'rc_1dfd19ae1152c42a',
+      conversationId: 'c_cdec91057e5fdcaf'
+    }
+  }]);
 });
 
 test('createGeminiDownloadRpcFetchHook should notify discovered original asset urls from download rpc responses', async () => {
@@ -589,6 +626,130 @@ test('createGeminiDownloadRpcFetchHook should inspect non-c8o8Fe Gemini batchexe
         responseId: 'r_auto1234567890ab',
         draftId: 'rc_auto1234567890ab',
         conversationId: 'c_auto1234567890ab'
+      }
+    }
+  }]);
+});
+
+test('createGeminiDownloadRpcFetchHook should use response-derived asset ids for Gemini preview urls in history payloads', async () => {
+  const seen = [];
+  const originalFetch = async () => new Response(
+    ')]}\'\n123\n[["wrb.fr","hNvQHb","[[[[\\\"c_cdec91057e5fdcaf\\\",\\\"r_d7ef418292ede05c\\\",\\\"rc_2315ec0b5621fce5\\\"],[[[\\\"rc_1dfd19ae1152c42a\\\",[\\\"http://googleusercontent.com/image_generation_content/1\\\"],[null,null,null,null,[null,null,8]],null,null,null,null,null,[2],\\\"und\\\",null,null,[null,null,null,null,null,null,[3],[[[[null,null,null,[null,1,\\\"2399453241942556798.png\\\",\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/gg\\\\/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ\\\"]]]]]]]]]",null,null,null,"generic"]]',
+    {
+      status: 200,
+      headers: { 'content-type': 'text/plain; charset=UTF-8' }
+    }
+  );
+
+  const hook = createGeminiDownloadRpcFetchHook({
+    originalFetch,
+    getIntentMetadata: () => ({
+      assetIds: {
+        conversationId: 'c_cdec91057e5fdcaf'
+      }
+    }),
+    onOriginalAssetDiscovered: (payload) => {
+      seen.push(payload);
+    }
+  });
+
+  await hook('https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c', {
+    method: 'POST',
+    body: 'f.req=%5B%5B%5B%22hNvQHb%22%2C%22%5B%5C%22c_cdec91057e5fdcaf%5C%22%2C10%2Cnull%2C1%2C%5B0%5D%2C%5B4%5D%2Cnull%2C1%5D%22%2Cnull%2C%22generic%22%5D%5D%5D&at=abc'
+  });
+
+  assert.deepEqual(seen, [{
+    rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c',
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0',
+    intentMetadata: {
+      assetIds: {
+        responseId: 'r_d7ef418292ede05c',
+        draftId: 'rc_2315ec0b5621fce5',
+        conversationId: 'c_cdec91057e5fdcaf'
+      }
+    }
+  }]);
+});
+
+test('installGeminiDownloadRpcXmlHttpRequestHook should inspect Gemini batchexecute XHR responses and notify response-derived asset bindings', async () => {
+  const seen = [];
+
+  class FakeXMLHttpRequest {
+    constructor() {
+      this.listeners = new Map();
+      this.responseType = '';
+      this.status = 0;
+      this.responseText = '';
+      this.response = '';
+    }
+
+    addEventListener(type, listener) {
+      const listeners = this.listeners.get(type) || [];
+      listeners.push(listener);
+      this.listeners.set(type, listeners);
+    }
+
+    removeEventListener(type, listener) {
+      const listeners = this.listeners.get(type) || [];
+      this.listeners.set(type, listeners.filter((entry) => entry !== listener));
+    }
+
+    open(method, url) {
+      this.method = method;
+      this.url = url;
+    }
+
+    send(body) {
+      this.body = body;
+    }
+
+    dispatch(type) {
+      for (const listener of this.listeners.get(type) || []) {
+        listener.call(this, { type, target: this, currentTarget: this });
+      }
+    }
+
+    respond({ status = 200, responseText = '' } = {}) {
+      this.status = status;
+      this.responseText = responseText;
+      this.response = responseText;
+      this.dispatch('loadend');
+    }
+  }
+
+  const targetWindow = {
+    XMLHttpRequest: FakeXMLHttpRequest
+  };
+
+  installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
+    getIntentMetadata: () => ({
+      assetIds: {
+        conversationId: 'c_cdec91057e5fdcaf'
+      }
+    }),
+    onOriginalAssetDiscovered: (payload) => {
+      seen.push(payload);
+    },
+    logger: { warn() {} }
+  });
+
+  const xhr = new targetWindow.XMLHttpRequest();
+  xhr.open('POST', 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c');
+  xhr.send('f.req=%5B%5B%5B%22hNvQHb%22%2C%22%5B%5C%22c_cdec91057e5fdcaf%5C%22%2C10%2Cnull%2C1%2C%5B0%5D%2C%5B4%5D%2Cnull%2C1%5D%22%2Cnull%2C%22generic%22%5D%5D%5D&at=abc');
+  xhr.respond({
+    status: 200,
+    responseText: ')]}\'\n123\n[["wrb.fr","hNvQHb","[[[[\\\"c_cdec91057e5fdcaf\\\",\\\"r_d7ef418292ede05c\\\",\\\"rc_2315ec0b5621fce5\\\"],[[[\\\"rc_1dfd19ae1152c42a\\\",[\\\"http://googleusercontent.com/image_generation_content/1\\\"],[null,null,null,null,[null,null,8]],null,null,null,null,null,[2],\\\"und\\\",null,null,[null,null,null,null,null,null,[3],[[[[null,null,null,[null,1,\\\"2399453241942556798.png\\\",\\\"https:\\\\/\\\\/lh3.googleusercontent.com\\\\/gg\\\\/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ\\\"]]]]]]]]]",null,null,null,"generic"]]'
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(seen, [{
+    rpcUrl: 'https://gemini.google.com/_/BardChatUi/data/batchexecute?rpcids=hNvQHb&rt=c',
+    discoveredUrl: 'https://lh3.googleusercontent.com/gg/AMW1TPruenvvhqGkK0ivNZat8rOQAWX2D9MYOb3rnxDwPU2y0V9oAp2bsFbJaGpRuuRsL19W2GwrpLRLqs5NydfTKFgw1rS01x9Kw8LtVbLdozlk8xgDCA2JiQ2Zs-12nq3o1OoxCKkT2LDl0lstjozOVQLHVtPA3kTduYB8-vwLSw3mWY0EkGE6RaL5_-8nRGZKXMmfpfjKRwLeFBv129SAVZKrV_cd9vypDV_Kqf7RZv4cvvuS8iOdfgEVvBHfoPQ268hode9yEG4uafOs_cCKU_vrcI2Bv06Yu3zTjLn1YxHVbUzXbKKsywKxtNeiCvlpvoxgeIlF8x_GgMAWinNf46vQ=s0',
+    intentMetadata: {
+      assetIds: {
+        responseId: 'r_d7ef418292ede05c',
+        draftId: 'rc_2315ec0b5621fce5',
+        conversationId: 'c_cdec91057e5fdcaf'
       }
     }
   }]);

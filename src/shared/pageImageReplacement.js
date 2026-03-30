@@ -41,6 +41,7 @@ const PREVIEW_PAGE_IMAGE_PROCESSING_OPTIONS = Object.freeze({
 
 const processingOverlayState = new WeakMap();
 const previewOverlayState = new WeakMap();
+const originalAssetUrlRegistry = new Map();
 
 function appendLog(onLog, type, payload = {}) {
   if (typeof onLog === 'function') {
@@ -79,6 +80,53 @@ function getErrorCandidateDiagnosticsSummary(error) {
   return typeof error?.candidateDiagnosticsSummary === 'string'
     ? error.candidateDiagnosticsSummary
     : '';
+}
+
+function getDraftAssetRegistryKey(assetIds = null) {
+  const draftId = typeof assetIds?.draftId === 'string' ? assetIds.draftId.trim() : '';
+  return draftId ? `draft:${draftId}` : '';
+}
+
+function getResponseAssetRegistryKey(assetIds = null) {
+  const responseId = typeof assetIds?.responseId === 'string' ? assetIds.responseId.trim() : '';
+  const conversationId = typeof assetIds?.conversationId === 'string'
+    ? assetIds.conversationId.trim()
+    : '';
+  return responseId && conversationId ? `response:${responseId}|conversation:${conversationId}` : '';
+}
+
+function rememberOriginalAssetUrlBinding(assetIds = null, sourceUrl = '') {
+  const normalizedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
+  if (!assetIds || !normalizedSourceUrl) {
+    return;
+  }
+
+  const draftKey = getDraftAssetRegistryKey(assetIds);
+  const responseKey = getResponseAssetRegistryKey(assetIds);
+  if (draftKey) {
+    originalAssetUrlRegistry.set(draftKey, normalizedSourceUrl);
+  }
+  if (responseKey) {
+    originalAssetUrlRegistry.set(responseKey, normalizedSourceUrl);
+  }
+}
+
+function resolveRememberedOriginalAssetUrl(assetIds = null) {
+  if (!assetIds) {
+    return '';
+  }
+
+  const draftKey = getDraftAssetRegistryKey(assetIds);
+  if (draftKey && originalAssetUrlRegistry.has(draftKey)) {
+    return originalAssetUrlRegistry.get(draftKey) || '';
+  }
+
+  const responseKey = getResponseAssetRegistryKey(assetIds);
+  if (responseKey && originalAssetUrlRegistry.has(responseKey)) {
+    return originalAssetUrlRegistry.get(responseKey) || '';
+  }
+
+  return '';
 }
 
 function createPreviewCandidateProcessor(processWatermarkBlobImpl, processingOptions = null) {
@@ -1247,17 +1295,23 @@ export function preparePageImageProcessing(imageElement, {
     return null;
   }
 
-  const sourceUrl = typeof resolveSourceUrl === 'function'
+  let sourceUrl = typeof resolveSourceUrl === 'function'
     ? String(resolveSourceUrl(imageElement) || '').trim()
     : '';
-  if (!sourceUrl) {
-    return null;
-  }
 
   const dataset = imageElement.dataset || (imageElement.dataset = {});
   const assetIds = typeof resolveAssetIds === 'function'
     ? resolveAssetIds(imageElement)
     : null;
+  const rememberedSourceUrl = resolveRememberedOriginalAssetUrl(assetIds);
+  if (rememberedSourceUrl && (!dataset.gwrSourceUrl || isBlobPageImageSource(sourceUrl))) {
+    dataset.gwrSourceUrl = rememberedSourceUrl;
+    sourceUrl = rememberedSourceUrl;
+  }
+  if (!sourceUrl) {
+    return null;
+  }
+
   const lastSourceUrl = dataset[PAGE_IMAGE_SOURCE_KEY] || '';
   const lastState = dataset[PAGE_IMAGE_STATE_KEY] || '';
   if (lastSourceUrl === sourceUrl && lastState === 'ready') {
@@ -1451,7 +1505,11 @@ export function bindOriginalAssetUrlToImages({
   sourceUrl = ''
 } = {}) {
   const normalizedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
-  if (!root || !assetIds || !normalizedSourceUrl) {
+  if (!assetIds || !normalizedSourceUrl) {
+    return 0;
+  }
+  rememberOriginalAssetUrlBinding(assetIds, normalizedSourceUrl);
+  if (!root) {
     return 0;
   }
 

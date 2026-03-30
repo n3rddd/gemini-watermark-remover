@@ -1132,6 +1132,43 @@ test('bindOriginalAssetUrlToImages should attach original asset url to matching 
   });
 });
 
+test('preparePageImageProcessing should reuse remembered original asset urls when RPC binding arrives before the image node', async () => {
+  await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
+    bindOriginalAssetUrlToImages({
+      root: {
+        querySelectorAll() {
+          return [];
+        }
+      },
+      assetIds: {
+        responseId: 'r_latebind123456789',
+        draftId: 'rc_latebind123456789',
+        conversationId: 'c_latebind123456789'
+      },
+      sourceUrl: 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj'
+    });
+
+    const image = new MockHTMLImageElement();
+    image.dataset = {};
+    image.style = {};
+
+    const result = preparePageImageProcessing(image, {
+      HTMLImageElementClass: MockHTMLImageElement,
+      isProcessableImage: () => true,
+      resolveSourceUrl: () => 'blob:https://gemini.google.com/runtime-preview',
+      resolveAssetIds: () => ({
+        responseId: 'r_latebind123456789',
+        draftId: 'rc_latebind123456789',
+        conversationId: 'c_latebind123456789'
+      })
+    });
+
+    assert.equal(result?.sourceUrl, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
+    assert.equal(image.dataset.gwrSourceUrl, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
+    assert.equal(image.dataset.gwrPageImageSource, 'https://lh3.googleusercontent.com/gg/example-late-bind=s0-rj');
+  });
+});
+
 test('createPageImageReplacementController should apply successful helper result and emit preview events', async () => {
   await withPageImageTestEnv(async ({ MockHTMLImageElement }) => {
     const logs = [];

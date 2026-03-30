@@ -1,4 +1,5 @@
 import {
+  isGeminiGeneratedAssetUrl,
   isGeminiOriginalAssetUrl,
   normalizeGoogleusercontentImageUrl
 } from './urlUtils.js';
@@ -101,10 +102,14 @@ const DEFAULT_INTENT_WINDOW_MS = 5000;
 const GEMINI_DOWNLOAD_RPC_HOST = 'gemini.google.com';
 const GEMINI_DOWNLOAD_RPC_PATH = '/_/BardChatUi/data/batchexecute';
 const GEMINI_DOWNLOAD_RPC_ID = 'c8o8Fe';
-const GEMINI_ORIGINAL_ASSET_URL_PATTERN = /https:(?:(?:\\\\\/)|(?:\\\/)|\/){2}[^\s"'\]]*googleusercontent\.com(?:(?:\\\\\/)|(?:\\\/)|\/)[^\s"'\]]+/gi;
+const GEMINI_GOOGLEUSERCONTENT_URL_PATTERN = /https:(?:(?:\\\\\/)|(?:\\\/)|\/){2}[^\s"'\]]*googleusercontent\.com(?:(?:\\\\\/)|(?:\\\/)|\/)[^\s"'\]]+/gi;
 const GEMINI_RESPONSE_ID_PATTERN = /\br_[a-z0-9]+\b/i;
 const GEMINI_DRAFT_ID_PATTERN = /\brc_[a-z0-9]+\b/i;
 const GEMINI_CONVERSATION_ID_PATTERN = /\bc_[a-z0-9]+\b/i;
+const GEMINI_RESPONSE_BINDING_PATTERN = /(?<conversationId>c_[a-z0-9]+)[\s\S]{0,96}?(?<responseId>r_[a-z0-9]+)[\s\S]{0,96}?(?<draftId>rc_[a-z0-9]+)/gi;
+const GEMINI_DRAFT_URL_BLOCK_PATTERN = /(?<draftId>rc_[a-z0-9]+)(?:(?:\\\\")|")?,\[(?:(?:\\\\")|")http:\/\/googleusercontent\.com\/image_generation_content\/\d+(?:(?:\\\\")|")?\][\s\S]{0,2400}?(?<discoveredUrl>https:(?:(?:\\\\\/)|(?:\\\/)|\/){2}[^\s"'\]]*googleusercontent\.com(?:(?:\\\\\/)|(?:\\\/)|\/)[^\s"'\]]+)/gi;
+const GEMINI_XHR_HOOK_STATE = Symbol('gwrGeminiRpcXhrState');
+const GEMINI_XHR_HOOK_LISTENER = Symbol('gwrGeminiRpcXhrListener');
 
 function normalizeActionLabel(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -362,7 +367,7 @@ export function extractGeminiOriginalAssetUrlsFromResponseText(responseText) {
   }
 
   const discoveredUrls = new Set();
-  for (const match of responseText.matchAll(GEMINI_ORIGINAL_ASSET_URL_PATTERN)) {
+  for (const match of responseText.matchAll(GEMINI_GOOGLEUSERCONTENT_URL_PATTERN)) {
     const candidateUrl = decodeEscapedRpcUrl(match[0]);
     const normalizedUrl = normalizeGoogleusercontentImageUrl(candidateUrl);
     if (!isGeminiOriginalAssetUrl(normalizedUrl)) {
@@ -372,6 +377,204 @@ export function extractGeminiOriginalAssetUrlsFromResponseText(responseText) {
   }
 
   return Array.from(discoveredUrls);
+}
+
+export function extractGeminiGeneratedAssetUrlsFromResponseText(responseText) {
+  if (typeof responseText !== 'string' || responseText.length === 0) {
+    return [];
+  }
+
+  const discoveredUrls = new Set();
+  for (const match of responseText.matchAll(GEMINI_GOOGLEUSERCONTENT_URL_PATTERN)) {
+    const candidateUrl = decodeEscapedRpcUrl(match[0]);
+    const normalizedUrl = normalizeGoogleusercontentImageUrl(candidateUrl);
+    if (!isGeminiGeneratedAssetUrl(normalizedUrl)) {
+      continue;
+    }
+    discoveredUrls.add(normalizedUrl);
+  }
+
+  return Array.from(discoveredUrls);
+}
+
+function collectGeminiResponseBindingAnchors(responseText) {
+  if (typeof responseText !== 'string' || responseText.length === 0) {
+    return [];
+  }
+
+  const anchors = [];
+  for (const match of responseText.matchAll(GEMINI_RESPONSE_BINDING_PATTERN)) {
+    const conversationId = match.groups?.conversationId || null;
+    const responseId = match.groups?.responseId || null;
+    const draftId = match.groups?.draftId || null;
+    if (!conversationId && !responseId && !draftId) {
+      continue;
+    }
+
+    anchors.push({
+      index: match.index ?? 0,
+      assetIds: {
+        responseId,
+        draftId,
+        conversationId
+      }
+    });
+  }
+
+  return anchors;
+}
+
+function collectGeminiDraftUrlBlocks(responseText) {
+  if (typeof responseText !== 'string' || responseText.length === 0) {
+    return [];
+  }
+
+  const blocks = [];
+  for (const match of responseText.matchAll(GEMINI_DRAFT_URL_BLOCK_PATTERN)) {
+    const draftId = match.groups?.draftId || null;
+    const discoveredUrl = normalizeGoogleusercontentImageUrl(
+      decodeEscapedRpcUrl(match.groups?.discoveredUrl || '')
+    );
+    if (!draftId || !isGeminiGeneratedAssetUrl(discoveredUrl)) {
+      continue;
+    }
+
+    blocks.push({
+      index: match.index ?? 0,
+      draftId,
+      discoveredUrl
+    });
+  }
+
+  return blocks;
+}
+
+export function extractGeminiAssetBindingsFromResponseText(responseText) {
+  if (typeof responseText !== 'string' || responseText.length === 0) {
+    return [];
+  }
+
+  const anchors = collectGeminiResponseBindingAnchors(responseText);
+  if (anchors.length === 0) {
+    return [];
+  }
+
+  const bindings = [];
+  const seenBindings = new Set();
+  const draftUrlBlocks = collectGeminiDraftUrlBlocks(responseText);
+
+  for (const block of draftUrlBlocks) {
+    const matchingAnchor = [...anchors]
+      .reverse()
+      .find((anchor) => anchor.index < block.index && anchor.assetIds.draftId === block.draftId);
+    if (!matchingAnchor) {
+      continue;
+    }
+
+    const bindingKey = `${matchingAnchor.assetIds.conversationId || ''}|${matchingAnchor.assetIds.responseId || ''}|${matchingAnchor.assetIds.draftId || ''}|${block.discoveredUrl}`;
+    if (seenBindings.has(bindingKey)) {
+      continue;
+    }
+    seenBindings.add(bindingKey);
+    bindings.push({
+      discoveredUrl: block.discoveredUrl,
+      assetIds: {
+        ...matchingAnchor.assetIds
+      }
+    });
+  }
+
+  if (bindings.length > 0) {
+    return bindings;
+  }
+
+  for (let index = 0; index < anchors.length; index += 1) {
+    const anchor = anchors[index];
+    const nextAnchor = anchors[index + 1];
+    const segment = responseText.slice(anchor.index, nextAnchor?.index ?? responseText.length);
+    const discoveredUrls = extractGeminiGeneratedAssetUrlsFromResponseText(segment);
+    for (const discoveredUrl of discoveredUrls) {
+      const bindingKey = `${anchor.assetIds.conversationId || ''}|${anchor.assetIds.responseId || ''}|${anchor.assetIds.draftId || ''}|${discoveredUrl}`;
+      if (seenBindings.has(bindingKey)) {
+        continue;
+      }
+      seenBindings.add(bindingKey);
+      bindings.push({
+        discoveredUrl,
+        assetIds: {
+          ...anchor.assetIds
+        }
+      });
+    }
+  }
+
+  return bindings;
+}
+
+function mergeGeminiIntentMetadata(intentMetadata, assetIds) {
+  const baseMetadata = intentMetadata && typeof intentMetadata === 'object'
+    ? { ...intentMetadata }
+    : {};
+  const mergedAssetIds = {
+    ...(baseMetadata.assetIds && typeof baseMetadata.assetIds === 'object'
+      ? baseMetadata.assetIds
+      : {}),
+    ...(assetIds && typeof assetIds === 'object' ? assetIds : {})
+  };
+
+  if (!mergedAssetIds.responseId && !mergedAssetIds.draftId && !mergedAssetIds.conversationId) {
+    return Object.keys(baseMetadata).length > 0 ? baseMetadata : null;
+  }
+
+  return {
+    ...baseMetadata,
+    assetIds: mergedAssetIds
+  };
+}
+
+async function notifyGeminiOriginalAssetsFromRpcPayload({
+  rpcUrl,
+  requestAssetIds = null,
+  responseText = '',
+  getIntentMetadata = () => null,
+  onOriginalAssetDiscovered = null
+} = {}) {
+  const intentMetadata = typeof getIntentMetadata === 'function'
+    ? getIntentMetadata({ rpcUrl })
+    : null;
+  const resolvedIntentMetadata = mergeGeminiIntentMetadata(intentMetadata, requestAssetIds);
+  if (typeof onOriginalAssetDiscovered !== 'function') {
+    return;
+  }
+
+  const responseBindings = extractGeminiAssetBindingsFromResponseText(responseText);
+  if (responseBindings.length > 0) {
+    for (const binding of responseBindings) {
+      const mergedIntentMetadata = mergeGeminiIntentMetadata(
+        resolvedIntentMetadata,
+        binding.assetIds
+      );
+      await onOriginalAssetDiscovered({
+        rpcUrl,
+        discoveredUrl: binding.discoveredUrl,
+        intentMetadata: mergedIntentMetadata
+      });
+    }
+    return;
+  }
+
+  if (!resolvedIntentMetadata) {
+    return;
+  }
+
+  const discoveredUrls = extractGeminiOriginalAssetUrlsFromResponseText(responseText);
+  for (const discoveredUrl of discoveredUrls) {
+    await onOriginalAssetDiscovered({
+      rpcUrl,
+      discoveredUrl,
+      intentMetadata: resolvedIntentMetadata
+    });
+  }
 }
 
 export function createGeminiDownloadRpcFetchHook({
@@ -401,34 +604,107 @@ export function createGeminiDownloadRpcFetchHook({
     }
 
     try {
-      const intentMetadata = typeof getIntentMetadata === 'function'
-        ? getIntentMetadata({ args, rpcUrl })
-        : null;
       const requestAssetIds = await extractGeminiAssetIdsFromRpcRequestArgs(args);
-      const resolvedIntentMetadata = intentMetadata?.assetIds || !requestAssetIds
-        ? intentMetadata
-        : {
-          ...(intentMetadata && typeof intentMetadata === 'object' ? intentMetadata : {}),
-          assetIds: requestAssetIds
-        };
-      if (!resolvedIntentMetadata || typeof onOriginalAssetDiscovered !== 'function') {
-        return response;
-      }
-
       const responseText = await response.clone().text();
-      const discoveredUrls = extractGeminiOriginalAssetUrlsFromResponseText(responseText);
-      for (const discoveredUrl of discoveredUrls) {
-        await onOriginalAssetDiscovered({
-          rpcUrl,
-          discoveredUrl,
-          intentMetadata: resolvedIntentMetadata
-        });
-      }
+      await notifyGeminiOriginalAssetsFromRpcPayload({
+        rpcUrl,
+        requestAssetIds,
+        responseText,
+        getIntentMetadata: () => (
+          typeof getIntentMetadata === 'function'
+            ? getIntentMetadata({ args, rpcUrl })
+            : null
+        ),
+        onOriginalAssetDiscovered
+      });
     } catch (error) {
       logger?.warn?.('[Gemini Watermark Remover] Download RPC hook processing failed:', error);
     }
 
     return response;
+  };
+}
+
+export function installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
+  getIntentMetadata = () => null,
+  onOriginalAssetDiscovered = null,
+  logger = console
+} = {}) {
+  if (!targetWindow || typeof targetWindow !== 'object') {
+    throw new TypeError('targetWindow must be an object');
+  }
+
+  const XMLHttpRequestCtor = targetWindow.XMLHttpRequest;
+  const prototype = XMLHttpRequestCtor?.prototype;
+  if (typeof XMLHttpRequestCtor !== 'function'
+    || !prototype
+    || typeof prototype.open !== 'function'
+    || typeof prototype.send !== 'function') {
+    return null;
+  }
+
+  const originalOpen = prototype.open;
+  const originalSend = prototype.send;
+
+  prototype.open = function gwrGeminiRpcOpen(method, url, ...rest) {
+    this[GEMINI_XHR_HOOK_STATE] = {
+      rpcUrl: typeof url === 'string' ? url : String(url || ''),
+      requestBody: null
+    };
+    return originalOpen.call(this, method, url, ...rest);
+  };
+
+  prototype.send = function gwrGeminiRpcSend(body) {
+    const state = this[GEMINI_XHR_HOOK_STATE] || {
+      rpcUrl: '',
+      requestBody: null
+    };
+    state.requestBody = body;
+    this[GEMINI_XHR_HOOK_STATE] = state;
+
+    if (!this[GEMINI_XHR_HOOK_LISTENER] && typeof this.addEventListener === 'function') {
+      const handleLoadEnd = () => {
+        const currentState = this[GEMINI_XHR_HOOK_STATE];
+        const rpcUrl = currentState?.rpcUrl || '';
+        if (!isGeminiBatchExecuteUrl(rpcUrl)) {
+          return;
+        }
+        if (typeof this.status === 'number' && (this.status < 200 || this.status >= 300)) {
+          return;
+        }
+        if (this.responseType && this.responseType !== 'text') {
+          return;
+        }
+
+        const responseText = typeof this.responseText === 'string'
+          ? this.responseText
+          : (typeof this.response === 'string' ? this.response : '');
+        if (!responseText) {
+          return;
+        }
+
+        void notifyGeminiOriginalAssetsFromRpcPayload({
+          rpcUrl,
+          requestAssetIds: extractGeminiAssetIdsFromRpcRequestBody(currentState?.requestBody),
+          responseText,
+          getIntentMetadata,
+          onOriginalAssetDiscovered
+        }).catch((error) => {
+          logger?.warn?.('[Gemini Watermark Remover] Download RPC XHR hook processing failed:', error);
+        });
+      };
+      this[GEMINI_XHR_HOOK_LISTENER] = handleLoadEnd;
+      this.addEventListener('loadend', handleLoadEnd);
+    }
+
+    return originalSend.call(this, body);
+  };
+
+  return {
+    dispose() {
+      prototype.open = originalOpen;
+      prototype.send = originalSend;
+    }
   };
 }
 

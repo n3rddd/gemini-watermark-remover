@@ -6,6 +6,7 @@ import { extractGeminiImageAssetIds } from '../shared/domAdapter.js';
 import {
   createGeminiDownloadIntentGate,
   createGeminiDownloadRpcFetchHook,
+  installGeminiDownloadRpcXmlHttpRequestHook,
   installGeminiDownloadHook
 } from './downloadHook.js';
 import { createUserscriptBlobFetcher } from './crossOriginFetch.js';
@@ -108,6 +109,18 @@ function shouldSkipFrame(targetWindow) {
     });
     const downloadRpcFetch = createGeminiDownloadRpcFetchHook({
       originalFetch: targetWindow.fetch.bind(targetWindow),
+      getIntentMetadata: () => downloadIntentGate.getRecentIntentMetadata(),
+      onOriginalAssetDiscovered: ({ rpcUrl, discoveredUrl, intentMetadata }) => {
+        handleOriginalAssetDiscovered({
+          rpcUrl,
+          discoveredUrl,
+          normalizedUrl: discoveredUrl,
+          intentMetadata
+        });
+      },
+      logger: console
+    });
+    installGeminiDownloadRpcXmlHttpRequestHook(targetWindow, {
       getIntentMetadata: () => downloadIntentGate.getRecentIntentMetadata(),
       onOriginalAssetDiscovered: ({ rpcUrl, discoveredUrl, intentMetadata }) => {
         handleOriginalAssetDiscovered({
