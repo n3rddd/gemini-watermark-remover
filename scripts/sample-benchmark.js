@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-import { chromium } from 'playwright';
+import sharp from 'sharp';
 
 import { calculateAlphaMap } from '../src/core/alphaMap.js';
 import { interpolateAlphaMap } from '../src/core/adaptiveDetector.js';
@@ -38,34 +38,16 @@ export async function listBenchmarkSampleAssets(sampleDir = path.resolve('src/as
         }));
 }
 
-async function decodeImageDataInPage(page, filePath) {
-    const buffer = await readFile(filePath);
-    const dataUrl = `data:${inferMimeType(filePath)};base64,${buffer.toString('base64')}`;
-
-    const output = await page.evaluate(async (imageUrl) => {
-        const img = new Image();
-        img.src = imageUrl;
-        await img.decode();
-
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        return {
-            width: imageData.width,
-            height: imageData.height,
-            data: Array.from(imageData.data)
-        };
-    }, dataUrl);
+export async function decodeImageDataInNode(filePath) {
+    const { data, info } = await sharp(filePath)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
 
     return {
-        width: output.width,
-        height: output.height,
-        data: new Uint8ClampedArray(output.data)
+        width: info.width,
+        height: info.height,
+        data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength)
     };
 }
 
@@ -201,73 +183,66 @@ export function summarizeBenchmarkResults(results) {
 async function buildBenchmarkReport({
     sampleDir = path.resolve('src/assets/samples')
 } = {}) {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const bg48Path = path.resolve('src/assets/bg_48.png');
+    const bg96Path = path.resolve('src/assets/bg_96.png');
+    const alpha48 = calculateAlphaMap(await decodeImageDataInNode(bg48Path));
+    const alpha96 = calculateAlphaMap(await decodeImageDataInNode(bg96Path));
+    const alphaResolver = (size) => {
+        if (size === 48) return alpha48;
+        if (size === 96) return alpha96;
+        return interpolateAlphaMap(alpha96, 96, size);
+    };
 
-    try {
-        const bg48Path = path.resolve('src/assets/bg_48.png');
-        const bg96Path = path.resolve('src/assets/bg_96.png');
-        const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, bg48Path));
-        const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, bg96Path));
-        const alphaResolver = (size) => {
-            if (size === 48) return alpha48;
-            if (size === 96) return alpha96;
-            return interpolateAlphaMap(alpha96, 96, size);
+    const results = [];
+    const sampleItems = await listBenchmarkSampleAssets(sampleDir);
+
+    for (const item of sampleItems) {
+        const filePath = path.join(sampleDir, item.fileName);
+        const imageData = await decodeImageDataInNode(filePath);
+        const processed = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            maxPasses: 4,
+            getAlphaMap: alphaResolver
+        });
+        const position = resolveBenchmarkPosition({
+            imageData,
+            meta: processed.meta,
+            alpha48,
+            alpha96
+        });
+        const regionDelta = measureRegionDelta(imageData, processed.imageData, position);
+        const record = {
+            fileName: item.fileName,
+            filePath,
+            expectedGemini: item.expectedGemini,
+            applied: processed.meta.applied === true,
+            skipReason: processed.meta.skipReason || null,
+            source: processed.meta.source || '',
+            decisionTier: processed.meta.decisionTier || null,
+            position,
+            size: processed.meta.size ?? position.width,
+            passCount: processed.meta.passCount ?? 0,
+            attemptedPassCount: processed.meta.attemptedPassCount ?? 0,
+            passStopReason: processed.meta.passStopReason || null,
+            residualScore: toFiniteNumber(processed.meta.detection?.processedSpatialScore),
+            originalSpatialScore: toFiniteNumber(processed.meta.detection?.originalSpatialScore),
+            suppressionGain: toFiniteNumber(processed.meta.detection?.suppressionGain),
+            adaptiveConfidence: toFiniteNumber(processed.meta.detection?.adaptiveConfidence),
+            changedRatio: regionDelta.changedRatio,
+            avgAbsoluteDeltaPerChannel: regionDelta.avgAbsoluteDeltaPerChannel,
+            selectionDebug: processed.meta.selectionDebug ?? null
         };
-
-        const results = [];
-        const sampleItems = await listBenchmarkSampleAssets(sampleDir);
-
-        for (const item of sampleItems) {
-            const filePath = path.join(sampleDir, item.fileName);
-            const imageData = await decodeImageDataInPage(page, filePath);
-            const processed = processWatermarkImageData(imageData, {
-                alpha48,
-                alpha96,
-                maxPasses: 4,
-                getAlphaMap: alphaResolver
-            });
-            const position = resolveBenchmarkPosition({
-                imageData,
-                meta: processed.meta,
-                alpha48,
-                alpha96
-            });
-            const regionDelta = measureRegionDelta(imageData, processed.imageData, position);
-            const record = {
-                fileName: item.fileName,
-                filePath,
-                expectedGemini: item.expectedGemini,
-                applied: processed.meta.applied === true,
-                skipReason: processed.meta.skipReason || null,
-                source: processed.meta.source || '',
-                decisionTier: processed.meta.decisionTier || null,
-                position,
-                size: processed.meta.size ?? position.width,
-                passCount: processed.meta.passCount ?? 0,
-                attemptedPassCount: processed.meta.attemptedPassCount ?? 0,
-                passStopReason: processed.meta.passStopReason || null,
-                residualScore: toFiniteNumber(processed.meta.detection?.processedSpatialScore),
-                originalSpatialScore: toFiniteNumber(processed.meta.detection?.originalSpatialScore),
-                suppressionGain: toFiniteNumber(processed.meta.detection?.suppressionGain),
-                adaptiveConfidence: toFiniteNumber(processed.meta.detection?.adaptiveConfidence),
-                changedRatio: regionDelta.changedRatio,
-                avgAbsoluteDeltaPerChannel: regionDelta.avgAbsoluteDeltaPerChannel,
-                selectionDebug: processed.meta.selectionDebug ?? null
-            };
-            record.classification = classifyBenchmarkCase(record);
-            results.push(record);
-        }
-
-        return {
-            generatedAt: new Date().toISOString(),
-            sampleDir,
-            summary: summarizeBenchmarkResults(results),
-            results
-        };
-    } finally {
-        await browser.close();
+        record.classification = classifyBenchmarkCase(record);
+        results.push(record);
     }
+
+    return {
+        generatedAt: new Date().toISOString(),
+        sampleDir,
+        summary: summarizeBenchmarkResults(results),
+        results
+    };
 }
 
 export async function runSampleBenchmark({

@@ -38,13 +38,13 @@ const BG48_PATH = path.resolve(ROOT_DIR, 'src/assets/bg_48.png');
 const BG96_PATH = path.resolve(ROOT_DIR, 'src/assets/bg_96.png');
 const IMAGE_EXTENSIONS = new Set(['.png', '.webp', '.jpg', '.jpeg']);
 const EXACT_OFFICIAL_48_SAMPLE_ASSETS = Object.freeze([
-    '1-1.png',
-    '21-9.png',
-    '3-2.png',
-    '3-4.png',
-    '4-3.png',
-    '4-5.png',
-    '5-4.png'
+    '1-1.webp',
+    '21-9.webp',
+    '3-2.webp',
+    '3-4.webp',
+    '4-3.webp',
+    '4-5.webp',
+    '5-4.webp'
 ]);
 const RESIDUAL_RECALIBRATION_THRESHOLD = 0.5;
 const MIN_SUPPRESSION_FOR_SKIP_RECALIBRATION = 0.18;
@@ -76,7 +76,7 @@ async function listSampleAssetFiles() {
         .sort((a, b) => a.localeCompare(b));
 }
 
-test('sample asset manifest should expose paired png and webp files for every sample base name', async () => {
+test('sample asset manifest should expose at least one supported fixture image for every sample base name', async () => {
     const files = await listSampleAssetFiles();
     const variantsByBaseName = new Map();
 
@@ -92,10 +92,9 @@ test('sample asset manifest should expose paired png and webp files for every sa
     assert.ok(variantsByBaseName.size > 0, 'expected at least one sample base name');
 
     for (const [baseName, variants] of variantsByBaseName) {
-        assert.deepEqual(
-            [...variants].sort((left, right) => left.localeCompare(right)),
-            ['.png', '.webp'],
-            `expected ${baseName} to provide both png and webp samples`
+        assert.ok(
+            variants.has('.webp') || variants.has('.png'),
+            `expected ${baseName} to provide at least one supported sample variant`
         );
     }
 });
@@ -565,7 +564,7 @@ test('known Gemini sample assets should show strong watermark suppression after 
     }
 });
 
-test('2-3.png should not be skipped when the standard template has strong gradient evidence', async (t) => {
+test('2-3.webp should not be skipped when the standard template has strong gradient evidence', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -582,7 +581,7 @@ test('2-3.png should not be skipped when the standard template has strong gradie
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '2-3.png');
+        const filePath = path.join(SAMPLE_DIR, '2-3.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const result = processWatermarkImageData(imageData, {
             alpha48,
@@ -597,18 +596,18 @@ test('2-3.png should not be skipped when the standard template has strong gradie
             region: { x: position.x, y: position.y, size: position.width }
         });
 
-        assert.equal(result.meta.applied, true, 'expected 2-3.png to enter removal pipeline');
+        assert.equal(result.meta.applied, true, 'expected 2-3.webp to enter removal pipeline');
         assert.ok(
             result.meta.source.startsWith('standard'),
-            `expected 2-3.png to stay on a standard-template path, got ${result.meta.source}`
+            `expected 2-3.webp to stay on a standard-template path, got ${result.meta.source}`
         );
         assert.equal(
             result.meta.decisionTier,
             'validated-match',
-            `expected 2-3.png to be accepted through restoration validation, got decisionTier=${result.meta.decisionTier}, source=${result.meta.source}`
+            `expected 2-3.webp to be accepted through restoration validation, got decisionTier=${result.meta.decisionTier}, source=${result.meta.source}`
         );
-        assert.equal(result.meta.size, 96, 'expected 2-3.png to use the 96px watermark template');
-        assert.equal(result.meta.passCount, 1, `expected 2-3.png to stop after the first safe pass, got ${result.meta.passCount}`);
+        assert.equal(result.meta.size, 96, 'expected 2-3.webp to use the 96px watermark template');
+        assert.equal(result.meta.passCount, 1, `expected 2-3.webp to stop after the first safe pass, got ${result.meta.passCount}`);
         assert.ok(residual < 0.22, `expected residual watermark signal < 0.22, got ${residual}`);
     } finally {
         await browser.close();
@@ -658,7 +657,7 @@ test('exact-official 1K sample assets with visible 48px watermark should fall ba
     }
 });
 
-test('9-16.png should stop after the first pass when extra passes only reintroduce watermark edges', async (t) => {
+test('9-16.webp should stop after the first pass when extra passes only reintroduce watermark edges', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -675,7 +674,7 @@ test('9-16.png should stop after the first pass when extra passes only reintrodu
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '9-16.png');
+        const filePath = path.join(SAMPLE_DIR, '9-16.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const firstPassOnly = processWatermarkImageData(imageData, {
             alpha48,
@@ -702,11 +701,11 @@ test('9-16.png should stop after the first pass when extra passes only reintrodu
             region: { x: position.x, y: position.y, size: position.width }
         });
 
-        assert.equal(fullResult.meta.applied, true, 'expected 9-16.png to enter removal pipeline');
+        assert.equal(fullResult.meta.applied, true, 'expected 9-16.webp to enter removal pipeline');
         assert.equal(
             fullResult.meta.passCount,
             1,
-            `expected 9-16.png to stop after the first pass, got passCount=${fullResult.meta.passCount}, stop=${fullResult.meta.passStopReason}`
+            `expected 9-16.webp to stop after the first pass, got passCount=${fullResult.meta.passCount}, stop=${fullResult.meta.passStopReason}`
         );
         assert.ok(
             finalGradient <= firstPassGradient + 0.05,
@@ -717,7 +716,7 @@ test('9-16.png should stop after the first pass when extra passes only reintrodu
     }
 });
 
-test('9-16.png should fall back to the 48px anchor when the exact-official 96px evidence is weak', async (t) => {
+test('9-16.webp should fall back to the 48px anchor when the exact-official 96px evidence is weak', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -734,7 +733,7 @@ test('9-16.png should fall back to the 48px anchor when the exact-official 96px 
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '9-16.png');
+        const filePath = path.join(SAMPLE_DIR, '9-16.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const result = processWatermarkImageData(imageData, {
             alpha48,
@@ -743,8 +742,8 @@ test('9-16.png should fall back to the 48px anchor when the exact-official 96px 
             getAlphaMap: (size) => size === 48 ? alpha48 : size === 96 ? alpha96 : interpolateAlphaMap(alpha96, 96, size)
         });
 
-        assert.equal(result.meta.applied, true, 'expected 9-16.png to enter removal pipeline');
-        assert.equal(result.meta.size, 48, `expected 9-16.png to fall back to the 48px template, got ${result.meta.size}`);
+        assert.equal(result.meta.applied, true, 'expected 9-16.webp to enter removal pipeline');
+        assert.equal(result.meta.size, 48, `expected 9-16.webp to fall back to the 48px template, got ${result.meta.size}`);
         assert.deepEqual(
             result.meta.selectionDebug?.initialConfig,
             { logoSize: 48, marginRight: 32, marginBottom: 32 },
@@ -805,7 +804,7 @@ test('non-watermarked synthetic image should keep the candidate region unchanged
     }
 });
 
-test('16-9.png repeated removal helper should stop after the first pass when residual is already low', async (t) => {
+test('16-9.webp repeated removal helper should stop after the first pass when residual is already low', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -822,7 +821,7 @@ test('16-9.png repeated removal helper should stop after the first pass when res
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '16-9.png');
+        const filePath = path.join(SAMPLE_DIR, '16-9.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const defaultConfig = detectWatermarkConfig(imageData.width, imageData.height);
         const config = resolveInitialStandardConfig({
@@ -857,14 +856,14 @@ test('16-9.png repeated removal helper should stop after the first pass when res
         assert.ok(afterScore < beforeScore, `expected some suppression, before=${beforeScore}, after=${afterScore}`);
         assert.ok(
             beforeScore - afterScore >= 0.04,
-            `expected strong suppression on 16-9.png, before=${beforeScore}, after=${afterScore}`
+            `expected strong suppression on 16-9.webp, before=${beforeScore}, after=${afterScore}`
         );
     } finally {
         await browser.close();
     }
 });
 
-test('16-9.png repeated removal helper should keep the ROI out of sinkhole-like collapse', async (t) => {
+test('16-9.webp repeated removal helper should keep the ROI out of sinkhole-like collapse', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -881,7 +880,7 @@ test('16-9.png repeated removal helper should keep the ROI out of sinkhole-like 
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '16-9.png');
+        const filePath = path.join(SAMPLE_DIR, '16-9.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const defaultConfig = detectWatermarkConfig(imageData.width, imageData.height);
         const config = resolveInitialStandardConfig({
@@ -921,7 +920,7 @@ test('16-9.png repeated removal helper should keep the ROI out of sinkhole-like 
     }
 });
 
-test('16-9.png metadata should report only the passes that were actually applied', async (t) => {
+test('16-9.webp metadata should report only the passes that were actually applied', async (t) => {
     let browser;
     try {
         browser = await chromium.launch({ headless: true });
@@ -938,7 +937,7 @@ test('16-9.png metadata should report only the passes that were actually applied
     try {
         const alpha48 = calculateAlphaMap(await decodeImageDataInPage(page, BG48_PATH));
         const alpha96 = calculateAlphaMap(await decodeImageDataInPage(page, BG96_PATH));
-        const filePath = path.join(SAMPLE_DIR, '16-9.png');
+        const filePath = path.join(SAMPLE_DIR, '16-9.webp');
         const imageData = await decodeImageDataInPage(page, filePath);
         const processed = processWatermarkImageData(imageData, {
             alpha48,

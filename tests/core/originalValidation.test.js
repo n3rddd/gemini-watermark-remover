@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import {
+    checkOriginal,
     evaluateOriginalFromExif,
     getOriginalStatus,
     isLikelyGeminiDimensions,
@@ -14,6 +17,9 @@ test('isLikelyGeminiDimensions should include common metadata-stripped Gemini si
     assert.equal(isLikelyGeminiDimensions(832, 1248), true);
     assert.equal(isLikelyGeminiDimensions(928, 1152), true);
     assert.equal(isLikelyGeminiDimensions(1024, 1024), true);
+    assert.equal(isLikelyGeminiDimensions(512, 2064), true);
+    assert.equal(isLikelyGeminiDimensions(352, 2928), true);
+    assert.equal(isLikelyGeminiDimensions(1408, 768), true);
 });
 
 test('isLikelyGeminiDimensions should reject common non-Gemini canvas sizes', () => {
@@ -44,6 +50,16 @@ test('evaluateOriginalFromExif should keep unknown sizes as non-Gemini', () => {
         ImageHeight: 720
     });
     assert.deepEqual(out, { is_google: false, is_original: true });
+});
+
+test('checkOriginal should fallback to actual image dimensions when EXIF metadata is missing', async () => {
+    const samplePath = path.resolve('src/assets/samples/1-1.webp');
+    const buffer = await readFile(samplePath);
+    const file = new File([buffer], '1-1.webp', { type: 'image/webp' });
+
+    const out = await checkOriginal(file);
+
+    assert.deepEqual(out, { is_google: true, is_original: true });
 });
 
 test('resolveOriginalValidation should promote Gemini status when watermark signal is strong', () => {
@@ -155,4 +171,9 @@ test('resolveOriginalValidation should promote validated near-threshold standard
 test('getOriginalStatus should not warn for non-original size when Gemini source is confirmed', () => {
     const message = getOriginalStatus({ is_google: true, is_original: false });
     assert.equal(message, 'original.pass');
+});
+
+test('getOriginalStatus should report unconfirmed source instead of not-gemini when Gemini origin is not confirmed', () => {
+    const message = getOriginalStatus({ is_google: false, is_original: false });
+    assert.equal(message, 'original.unconfirmed');
 });

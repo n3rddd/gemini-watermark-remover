@@ -2,9 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 
-import { buildFixedOutputPath, writeFixedOutput } from '../../scripts/export-fixed-samples.js';
+import {
+    buildFixedOutputPath,
+    exportFixedSamples,
+    writeFixedOutput
+} from '../../scripts/export-fixed-samples.js';
 
 test('buildFixedOutputPath should place outputs under a sibling fix directory', () => {
     const output = buildFixedOutputPath('D:\\Project\\gemini-watermark-remover\\src\\assets\\samples\\16-9.png');
@@ -37,4 +41,24 @@ test('writeFixedOutput should create the fix directory and overwrite existing fi
     const saved = await readFile(outputPath, 'utf8');
     assert.equal(saved, 'new');
     await access(path.join(tempDir, 'fix'));
+});
+
+test('export-fixed-samples script should not depend on playwright', async () => {
+    const source = await readFile(new URL('../../scripts/export-fixed-samples.js', import.meta.url), 'utf8');
+
+    assert.doesNotMatch(source, /playwright/);
+    assert.doesNotMatch(source, /chromium\.launch/);
+});
+
+test('exportFixedSamples should process local sample files without a browser runtime', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'wm-export-run-'));
+    const inputPath = path.join(tempDir, '1-1.webp');
+    await copyFile(path.resolve('src/assets/samples/1-1.webp'), inputPath);
+
+    const results = await exportFixedSamples(tempDir);
+
+    assert.equal(results.length, 1);
+    assert.equal(path.basename(results[0].outputPath), '1-1.webp');
+    assert.ok(results[0].meta?.applied, `skipReason=${results[0].meta?.skipReason}`);
+    await access(path.join(tempDir, 'fix', '1-1.webp'));
 });

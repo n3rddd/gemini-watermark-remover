@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
     classifyBenchmarkCase,
+    decodeImageDataInNode,
     listBenchmarkSampleAssets,
     summarizeBenchmarkResults
 } from '../../scripts/sample-benchmark.js';
@@ -62,7 +63,7 @@ test('listBenchmarkSampleAssets should include every non-fix sample image under 
     assert.ok(items.length > 0, 'expected benchmark sample enumeration to find sample images');
     assert.ok(items.every((item) => item.expectedGemini === true), 'expected directory-driven samples to be treated as Gemini fixtures');
     assert.ok(items.every((item) => !item.fileName.includes('-fix.')), 'expected fix snapshots to be excluded');
-    assert.equal(items.some((item) => item.fileName === '1-1.png'), true);
+    assert.equal(items.some((item) => item.fileName === '1-1.webp'), true);
     assert.equal(items.some((item) => item.fileName === '9-16.webp'), true);
 });
 
@@ -79,4 +80,12 @@ test('summarizeBenchmarkResults should aggregate pass fail and bucket counts', (
     assert.equal(summary.failCount, 3);
     assert.equal(summary.buckets['missed-detection'], 2);
     assert.equal(summary.buckets['false-positive'], 1);
+});
+
+test('decodeImageDataInNode should decode sample assets without launching a browser', async () => {
+    const imageData = await decodeImageDataInNode(path.resolve('src/assets/samples/1-1.webp'));
+
+    assert.equal(imageData.width, 1024);
+    assert.equal(imageData.height, 1024);
+    assert.equal(imageData.data.length, 1024 * 1024 * 4);
 });

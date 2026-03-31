@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.8 - 2026-03-31
+
+### Userscript
+
+- Fixed Gemini origin confirmation for metadata-stripped inputs by falling back to actual image dimensions instead of EXIF-only width and height fields.
+- Expanded the recognized Gemini size catalog to cover the current tall and wide sample outputs used by the project fixtures.
+- Softened the non-confirmed origin status copy so confirmed removal quality is no longer described as "not Gemini" when the source is only unconfirmed.
+
+### Tooling
+
+- Removed the local-browser dependency from `benchmark:samples` and `export:samples`; both scripts now decode and encode fixtures through the Node pipeline directly.
+- Updated local regression fixtures and tests to use the remaining WebP sample set as the active release baseline.
+
+### Quality
+
+- Added regression coverage for no-EXIF origin fallback and Node-only sample decoding/export flows.
+- Re-verified the release with full automated tests, SDK smoke validation, sample benchmark/export runs, and a production build.
+
 ## 1.0.7 - 2026-03-31
 
 ### Userscript
