@@ -285,3 +285,237 @@ node scripts/calibrate-preview-alpha.js \
 - 下一轮如果还要继续优化，应优先观察：
   - 更强 real-page preview fixture 是否也需要单独 halo 约束
   - 是否要把 halo 指标扩展到更多 alpha band，而不只是当前中低 alpha 边带
+
+## 2026-04-03 第四轮结果
+
+### 新诊断
+
+在第三轮之后，用户继续反馈“仍有轻微残影”。
+
+结合截图与定向量化，这一轮确认了两个更细的根因：
+
+1. `21-9-preview` 这种平坦背景样本，已经不再是整块发白，而是尾部轮廓型残影。
+2. `real-page-preview-strong` 这种强样本，并不是没有更好的 cleanup 候选，而是：
+   - preview cleanup 的二次进入门槛过于保守
+   - 尾部 cleanup 要求的最小梯度收益过高
+
+换句话说，当前问题已经从“有没有 cleanup”变成了“cleanup 是否允许在 residual 阶段继续收尾”。
+
+### 本轮改动
+
+- `src/core/watermarkProcessor.js`
+  - `PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD` 从 `0.24` 下调到 `0.1`
+  - 新增 preview cleanup 多轮接受上限：`PREVIEW_EDGE_CLEANUP_MAX_APPLIED_PASSES = 3`
+  - 当基线已经进入 residual 阶段时：
+    - `baselineGradient <= 0.16` 允许更小的 `minGradientImprovement = 0.005`
+    - `halo` 很强时允许更宽松的 `minGradientImprovement = 0.01`
+  - 当 `halo` 明显偏亮时，允许在 `spatial <= 0.18` 的范围内继续尝试 cleanup，而不再死卡 `0.08`
+
+### 结果
+
+`21-9-preview.png` 在当前实现里进一步变成：
+
+- `source = standard+preview-anchor+validated+warp+edge-cleanup+edge-cleanup+edge-cleanup`
+- `spatial ≈ 0.0133`
+- `gradient ≈ 0.0473`
+- `haloDelta ≈ -1.18`
+
+`real-page-preview-strong-1024x559.png` 当前变成：
+
+- `source = standard+preview-anchor+validated+edge-cleanup+edge-cleanup`
+- `spatial ≈ 0.1375`
+- `gradient ≈ 0.2826`
+- `haloDelta ≈ 2.28`
+
+和第三轮相比，这一轮的改进点不是“更大力一次”，而是“允许 residual 阶段继续做安全的小收尾”。
+
+### 验证
+
+- `node --test tests/regression/sampleAssetsRemoval.test.js --test-name-pattern "21-9-preview\\.png should use preview-anchor edge cleanup to reduce residual watermark edges"`
+- `node --test tests/regression/realPagePreviewRemoval.test.js --test-name-pattern "real Gemini strong preview fixture should keep aggressive edge cleanup without profile overrides"`
+- `pnpm test`
+
+以上都已通过。
+
+### 当前判断
+
+- 当前主线仍然应该是 preview cleanup 规则细化，而不是回到整张 learned alpha map
+- 第四轮已经证明：
+  - residual 阶段需要单独的接受规则
+  - 低梯度尾部轮廓不能再用第一轮 cleanup 的门槛来判断
+  - strong preview 的剩余问题也更像 cleanup gate，而不是 template 错位
+
+## 2026-04-03 第五轮结果
+
+### 本轮目标
+
+验证一个更根本的方向：
+
+- 不再继续把问题只当作“preview 上直接减 watermark”
+- 而是先把 preview 看成一个前向渲染结果
+- 再尝试做最小逆求解
+
+本轮只实现离线实验能力，不接生产路径。
+
+### 新增实验能力
+
+- `src/core/previewAlphaCalibration.js`
+  - 新增 `renderPreviewWatermarkObservation(...)`
+  - 新增 `fitPreviewRenderModel(...)`
+  - 新增 `restorePreviewRegionWithRenderModel(...)`
+- `tests/core/previewAlphaCalibration.test.js`
+  - 新增 synthetic 前向模型拟合测试
+  - 新增 synthetic 逆求解优于直接反混合的测试
+
+### synthetic 结果
+
+在合成数据里，如果 preview 观测满足：
+
+- 标准 alpha 经 `shift/scale/alpha-blur`
+- 再经过一次 composite blur
+
+那么：
+
+- `fitPreviewRenderModel(...)` 能正确恢复 composite blur
+- `restorePreviewRegionWithRenderModel(...)` 明显优于直接 `removeWatermark(...)`
+
+这说明“前向模型 + 逆求解”这条技术路线本身是成立的。
+
+### 真实样本结果
+
+对真实样本对做离线实验后，观察到：
+
+- `21-9-preview.png`
+  - 当前生产输出相对 `source-resized` 的 ROI 平均绝对误差约 `37.19`
+  - 实验性逆求解后约 `27.84`
+- `9-16-preview.png`
+  - 当前生产输出相对 `source-resized` 的 ROI 平均绝对误差约 `9.19`
+  - 实验性逆求解后约 `7.20`
+
+但同时出现了一个更重要的现象：
+
+- 拟合到的最佳前向模型并不稳定地选择 `compositeBlurRadius > 0`
+- 真实样本里，拟合常常仍然偏向：
+  - `compositeBlurRadius = 0`
+  - 轻微 `shift/scale`
+  - 小幅 `alphaGain` 调整
+
+这和 synthetic 结果不同。
+
+### 新判断
+
+这说明当前更根本的障碍并不是“还没把前向模型写出来”，而是：
+
+- `source-resized` 不是 preview 的真实 clean truth
+- preview 背景本身就和 `source-resized` 有系统差异
+- 用 `source-resized` 去拟合 preview 渲染链路，会把背景差异错误吸收到 watermark 模型里
+
+换句话说，真实问题已经从：
+
+- “如何学习 preview watermark”
+
+变成了：
+
+- “如何在没有真实 clean preview 的前提下，从 preview 自身恢复 clean ROI”
+
+### 当前最根本的方向更新
+
+如果继续深挖，真正该做的不是继续依赖 `source-resized` 配对，而是二选一：
+
+1. 原图路径优先
+   - 如果能拿到原图，就只处理原图，再按 preview 的显示链路生成预览
+   - 这是最干净的根法
+
+2. preview-only 逆问题
+   - 不再把 `source-resized` 当作 clean truth
+   - 改成从 preview 邻域构造 clean prior
+   - 在 ROI 内解：
+     - watermark 参数
+     - clean 背景
+     - 局部平滑 / 纹理连续性
+
+当前判断里，第二条才是“只有 preview 栅格文件时”的真正根法。
+
+### 验证
+
+- `node --test tests/core/previewAlphaCalibration.test.js tests/scripts/previewAlphaCalibration.test.js`
+
+以上已通过。
+
+## 2026-04-03 第六轮结果
+
+### 本轮目标
+
+继续沿 `preview-only inverse problem` 推进，但不再只停留在“四边线性插值 prior”。
+
+本轮的核心问题是：
+
+- 现有 `buildPreviewNeighborhoodPrior(...)` 只是把左右、上下边界做一次线性混合
+- 这对平滑底色有效
+- 但对用户截图里那种沿菱形轮廓残留的轻微残影，内部连续性约束还不够
+
+### 本轮改动
+
+- `src/core/previewAlphaCalibration.js`
+  - `buildPreviewNeighborhoodPrior(...)` 从简单边界插值升级为：
+    - 先用四边插值做初值
+    - 再把 ROI 外真实 preview 像素作为固定边界
+    - 在 ROI 内做多轮 harmonic / diffusion 型松弛
+- `tests/core/previewAlphaCalibration.test.js`
+  - 新增一个 diagonal harmonic background synthetic 用例
+  - 要求新的 prior 明显优于旧的“四边线性插值基线”
+
+### synthetic 结果
+
+新测试确认：
+
+- 在对角线 / 鞍形背景上，旧 prior 和简单边界插值基线完全等价
+- harmonic prior 能明显优于该基线
+- 这说明“只看四边摘要值”确实会丢失 ROI 内部的连续性结构
+
+### 真实样本观察
+
+仍然用 `source-resized` 作为近似参考时，当前 harmonic prior 的离线结果表现为：
+
+- `21-9-preview.png`
+  - 当前生产输出相对 `source-resized` 的 ROI 平均绝对误差约 `37.19`
+  - 当前 preview-only harmonic prior 恢复后约 `34.81`
+  - 说明有改善，但仍然不够大
+- `9-16-preview.png`
+  - 当前生产输出相对 `source-resized` 的 ROI 平均绝对误差约 `9.19`
+  - 当前 preview-only harmonic prior 恢复后约 `7.32`
+  - 说明较平稳样本上 prior 升级更有效
+
+额外 sweep 后观察到：
+
+- `21-9-preview` 在更大的 `priorRadius` 与更强 `blendStrength` 下还能再小幅下降
+- 但收益仍然有限，远不到“根治残影”的程度
+
+### 新判断
+
+这轮结果很关键，因为它把下一步该做什么进一步收窄了：
+
+1. 现在的问题已经不再是 prior 太弱到完全没法用。
+2. `21-9-preview` 这种 stubborn 样本上，真正的瓶颈更像是 `fitPreviewOnlyRenderModel(...)` 的评分目标不对齐。
+
+当前 `preview-only` 拟合主要还是在最小化：
+
+- `rendered(prior, alpha params)` 与 `preview` 的 ROI 内 L1 差异
+
+但这不等价于：
+
+- 去水印后是否和 ROI 外边界连续
+- 去水印后是否真正压掉 watermark correlation / residual contour
+
+换句话说，下一步更值得做的不是继续换一版 prior，而是给 `preview-only` 拟合目标补上：
+
+- 恢复后边界连续性 penalty
+- 恢复后 watermark residual / contour penalty
+- 必要时再加局部纹理保真项
+
+### 验证
+
+- `node --test tests/core/previewAlphaCalibration.test.js tests/scripts/previewAlphaCalibration.test.js`
+- `pnpm test`
+
+以上已通过。

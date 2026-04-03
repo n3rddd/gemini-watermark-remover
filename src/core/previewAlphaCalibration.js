@@ -120,6 +120,116 @@ function cloneImageData(imageData) {
     };
 }
 
+function clampChannel(value) {
+    if (!Number.isFinite(value)) return 0;
+    if (value <= 0) return 0;
+    if (value >= 255) return 255;
+    return Math.round(value);
+}
+
+function applyPreviewWatermark(imageData, alphaMap, position, alphaGain = 1) {
+    for (let row = 0; row < position.height; row++) {
+        for (let col = 0; col < position.width; col++) {
+            const alpha = clamp01(alphaMap[row * position.width + col] * alphaGain);
+            if (alpha <= 0.001) continue;
+
+            const idx = ((position.y + row) * imageData.width + (position.x + col)) * 4;
+            for (let channel = 0; channel < 3; channel++) {
+                const original = imageData.data[idx + channel];
+                imageData.data[idx + channel] = clampChannel(alpha * 255 + (1 - alpha) * original);
+            }
+        }
+    }
+}
+
+function blurImageDataRegionOnce(imageData, position) {
+    const blurred = cloneImageData(imageData);
+
+    for (let row = 0; row < position.height; row++) {
+        for (let col = 0; col < position.width; col++) {
+            let sumR = 0;
+            let sumG = 0;
+            let sumB = 0;
+            let weight = 0;
+
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const localX = Math.max(0, Math.min(position.width - 1, col + dx));
+                    const localY = Math.max(0, Math.min(position.height - 1, row + dy));
+                    const idx = ((position.y + localY) * imageData.width + (position.x + localX)) * 4;
+                    const w = dx === 0 && dy === 0 ? 4 : (dx === 0 || dy === 0 ? 2 : 1);
+                    sumR += imageData.data[idx] * w;
+                    sumG += imageData.data[idx + 1] * w;
+                    sumB += imageData.data[idx + 2] * w;
+                    weight += w;
+                }
+            }
+
+            const outIdx = ((position.y + row) * blurred.width + (position.x + col)) * 4;
+            blurred.data[outIdx] = clampChannel(sumR / weight);
+            blurred.data[outIdx + 1] = clampChannel(sumG / weight);
+            blurred.data[outIdx + 2] = clampChannel(sumB / weight);
+        }
+    }
+
+    return blurred;
+}
+
+function blurImageDataRegion(imageData, position, radius = 0) {
+    const blurPasses = Number.isInteger(radius) ? radius : Math.max(0, Math.round(radius || 0));
+    if (blurPasses <= 0) {
+        return cloneImageData(imageData);
+    }
+
+    let current = cloneImageData(imageData);
+    for (let pass = 0; pass < blurPasses; pass++) {
+        current = blurImageDataRegionOnce(current, position);
+    }
+
+    return current;
+}
+
+function averageStripColor(imageData, {
+    xFrom,
+    xTo,
+    yFrom,
+    yTo
+}) {
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let count = 0;
+
+    const minX = Math.max(0, Math.min(xFrom, xTo));
+    const maxX = Math.min(imageData.width - 1, Math.max(xFrom, xTo));
+    const minY = Math.max(0, Math.min(yFrom, yTo));
+    const maxY = Math.min(imageData.height - 1, Math.max(yFrom, yTo));
+
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const idx = (y * imageData.width + x) * 4;
+            sumR += imageData.data[idx];
+            sumG += imageData.data[idx + 1];
+            sumB += imageData.data[idx + 2];
+            count++;
+        }
+    }
+
+    if (count <= 0) {
+        return [0, 0, 0];
+    }
+
+    return [sumR / count, sumG / count, sumB / count];
+}
+
+function lerpColor(left, right, t) {
+    return [
+        left[0] * (1 - t) + right[0] * t,
+        left[1] * (1 - t) + right[1] * t,
+        left[2] * (1 - t) + right[2] * t
+    ];
+}
+
 function measureRegionAbsDelta(candidateImageData, targetImageData, position) {
     let total = 0;
     let count = 0;
@@ -134,6 +244,132 @@ function measureRegionAbsDelta(candidateImageData, targetImageData, position) {
     }
 
     return count > 0 ? total / count : 0;
+}
+
+export function buildPreviewNeighborhoodPrior({
+    previewImageData,
+    position,
+    radius = 6
+}) {
+    if (!previewImageData || !position) {
+        throw new TypeError('buildPreviewNeighborhoodPrior requires previewImageData and position');
+    }
+
+    const stripRadius = Math.max(1, Math.round(radius || 1));
+    const prior = cloneImageData(previewImageData);
+    const leftBoundary = [];
+    const rightBoundary = [];
+    const topBoundary = [];
+    const bottomBoundary = [];
+
+    for (let row = 0; row < position.height; row++) {
+        const y = position.y + row;
+        leftBoundary.push(averageStripColor(previewImageData, {
+            xFrom: position.x - stripRadius,
+            xTo: position.x - 1,
+            yFrom: y - 1,
+            yTo: y + 1
+        }));
+        rightBoundary.push(averageStripColor(previewImageData, {
+            xFrom: position.x + position.width,
+            xTo: position.x + position.width + stripRadius - 1,
+            yFrom: y - 1,
+            yTo: y + 1
+        }));
+    }
+
+    for (let col = 0; col < position.width; col++) {
+        const x = position.x + col;
+        topBoundary.push(averageStripColor(previewImageData, {
+            xFrom: x - 1,
+            xTo: x + 1,
+            yFrom: position.y - stripRadius,
+            yTo: position.y - 1
+        }));
+        bottomBoundary.push(averageStripColor(previewImageData, {
+            xFrom: x - 1,
+            xTo: x + 1,
+            yFrom: position.y + position.height,
+            yTo: position.y + position.height + stripRadius - 1
+        }));
+    }
+
+    for (let row = 0; row < position.height; row++) {
+        const ty = position.height <= 1 ? 0.5 : row / (position.height - 1);
+        for (let col = 0; col < position.width; col++) {
+            const tx = position.width <= 1 ? 0.5 : col / (position.width - 1);
+            const horizontal = lerpColor(leftBoundary[row], rightBoundary[row], tx);
+            const vertical = lerpColor(topBoundary[col], bottomBoundary[col], ty);
+            const idx = ((position.y + row) * prior.width + (position.x + col)) * 4;
+            prior.data[idx] = clampChannel((horizontal[0] + vertical[0]) * 0.5);
+            prior.data[idx + 1] = clampChannel((horizontal[1] + vertical[1]) * 0.5);
+            prior.data[idx + 2] = clampChannel((horizontal[2] + vertical[2]) * 0.5);
+        }
+    }
+
+    if (position.width <= 1 || position.height <= 1) {
+        return prior;
+    }
+
+    const relaxationPasses = Math.max(24, Math.round((position.width + position.height) * 2));
+    for (let pass = 0; pass < relaxationPasses; pass++) {
+        for (let row = 0; row < position.height; row++) {
+            const y = position.y + row;
+            for (let col = 0; col < position.width; col++) {
+                const x = position.x + col;
+                const idx = (y * prior.width + x) * 4;
+                for (let channel = 0; channel < 3; channel++) {
+                    let sum = 0;
+                    let weight = 0;
+                    const neighbors = [
+                        [x - 1, y, 1],
+                        [x + 1, y, 1],
+                        [x, y - 1, 1],
+                        [x, y + 1, 1],
+                        [x - 1, y - 1, 0.5],
+                        [x + 1, y - 1, 0.5],
+                        [x - 1, y + 1, 0.5],
+                        [x + 1, y + 1, 0.5]
+                    ];
+
+                    for (const [neighborX, neighborY, neighborWeight] of neighbors) {
+                        if (
+                            neighborX < 0 ||
+                            neighborY < 0 ||
+                            neighborX >= prior.width ||
+                            neighborY >= prior.height
+                        ) {
+                            continue;
+                        }
+
+                        const neighborIdx = (neighborY * prior.width + neighborX) * 4;
+                        sum += prior.data[neighborIdx + channel] * neighborWeight;
+                        weight += neighborWeight;
+                    }
+
+                    prior.data[idx + channel] = clampChannel(sum / Math.max(1, weight));
+                }
+            }
+        }
+    }
+
+    return prior;
+}
+
+export function renderPreviewWatermarkObservation({
+    sourceImageData,
+    alphaMap,
+    position,
+    alphaGain = 1,
+    compositeBlurRadius = 0
+}) {
+    if (!sourceImageData || !alphaMap || !position) {
+        throw new TypeError('renderPreviewWatermarkObservation requires sourceImageData, alphaMap, and position');
+    }
+
+    const rendered = cloneImageData(sourceImageData);
+    applyPreviewWatermark(rendered, alphaMap, position, alphaGain);
+    return blurImageDataRegion(rendered, position, compositeBlurRadius);
 }
 
 export function fitConstrainedPreviewAlphaModel({
@@ -185,4 +421,207 @@ export function fitConstrainedPreviewAlphaModel({
     }
 
     return best;
+}
+
+export function fitPreviewRenderModel({
+    sourceImageData,
+    previewImageData,
+    standardAlphaMap,
+    position,
+    shiftCandidates = [-0.5, 0, 0.5],
+    scaleCandidates = [0.99, 1, 1.01],
+    alphaBlurRadii = [0, 1],
+    compositeBlurRadii = [0, 1],
+    alphaGainCandidates = [1]
+}) {
+    if (!sourceImageData || !previewImageData || !standardAlphaMap || !position) {
+        throw new TypeError('fitPreviewRenderModel requires sourceImageData, previewImageData, standardAlphaMap, and position');
+    }
+
+    const size = position.width;
+    if (!size || size !== position.height || standardAlphaMap.length !== size * size) {
+        throw new RangeError('fitPreviewRenderModel requires a square ROI and matching standardAlphaMap size');
+    }
+
+    let best = null;
+    for (const scale of scaleCandidates) {
+        for (const dy of shiftCandidates) {
+            for (const dx of shiftCandidates) {
+                const warped = warpAlphaMap(standardAlphaMap, size, { dx, dy, scale });
+                for (const alphaBlurRadius of alphaBlurRadii) {
+                    const alphaMap = blurAlphaMap(warped, size, alphaBlurRadius);
+                    for (const compositeBlurRadius of compositeBlurRadii) {
+                        for (const alphaGain of alphaGainCandidates) {
+                            const rendered = renderPreviewWatermarkObservation({
+                                sourceImageData,
+                                alphaMap,
+                                position,
+                                alphaGain,
+                                compositeBlurRadius
+                            });
+                            const score = measureRegionAbsDelta(rendered, previewImageData, position);
+
+                            if (!best || score < best.score) {
+                                best = {
+                                    alphaMap,
+                                    alphaGain,
+                                    params: {
+                                        shift: { dx, dy, scale },
+                                        alphaBlurRadius,
+                                        compositeBlurRadius
+                                    },
+                                    score
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return best;
+}
+
+export function fitPreviewOnlyRenderModel({
+    previewImageData,
+    standardAlphaMap,
+    position,
+    shiftCandidates = [-0.5, 0, 0.5],
+    scaleCandidates = [0.99, 1, 1.01],
+    alphaBlurRadii = [0, 1],
+    compositeBlurRadii = [0, 1],
+    alphaGainCandidates = [1],
+    priorRadius = 6
+}) {
+    if (!previewImageData || !standardAlphaMap || !position) {
+        throw new TypeError('fitPreviewOnlyRenderModel requires previewImageData, standardAlphaMap, and position');
+    }
+
+    const size = position.width;
+    if (!size || size !== position.height || standardAlphaMap.length !== size * size) {
+        throw new RangeError('fitPreviewOnlyRenderModel requires a square ROI and matching standardAlphaMap size');
+    }
+
+    const priorImageData = buildPreviewNeighborhoodPrior({
+        previewImageData,
+        position,
+        radius: priorRadius
+    });
+
+    let best = null;
+    for (const scale of scaleCandidates) {
+        for (const dy of shiftCandidates) {
+            for (const dx of shiftCandidates) {
+                const warped = warpAlphaMap(standardAlphaMap, size, { dx, dy, scale });
+                for (const alphaBlurRadius of alphaBlurRadii) {
+                    const alphaMap = blurAlphaMap(warped, size, alphaBlurRadius);
+                    for (const compositeBlurRadius of compositeBlurRadii) {
+                        for (const alphaGain of alphaGainCandidates) {
+                            const rendered = renderPreviewWatermarkObservation({
+                                sourceImageData: priorImageData,
+                                alphaMap,
+                                position,
+                                alphaGain,
+                                compositeBlurRadius
+                            });
+                            const score = measureRegionAbsDelta(rendered, previewImageData, position);
+
+                            if (!best || score < best.score) {
+                                best = {
+                                    alphaMap,
+                                    alphaGain,
+                                    priorImageData,
+                                    params: {
+                                        shift: { dx, dy, scale },
+                                        alphaBlurRadius,
+                                        compositeBlurRadius,
+                                        priorRadius
+                                    },
+                                    score
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return best;
+}
+
+export function restorePreviewRegionWithRenderModel({
+    previewImageData,
+    alphaMap,
+    position,
+    alphaGain = 1,
+    compositeBlurRadius = 0,
+    iterations = 12,
+    stepSize = 0.85
+}) {
+    if (!previewImageData || !alphaMap || !position) {
+        throw new TypeError('restorePreviewRegionWithRenderModel requires previewImageData, alphaMap, and position');
+    }
+
+    let deblurred = cloneImageData(previewImageData);
+    const totalIterations = Math.max(0, Math.round(iterations || 0));
+    const resolvedStepSize = Number.isFinite(stepSize) ? stepSize : 0.85;
+
+    if (compositeBlurRadius > 0 && totalIterations > 0) {
+        for (let iteration = 0; iteration < totalIterations; iteration++) {
+            const reblurred = blurImageDataRegion(deblurred, position, compositeBlurRadius);
+
+            for (let row = 0; row < position.height; row++) {
+                for (let col = 0; col < position.width; col++) {
+                    const idx = ((position.y + row) * deblurred.width + (position.x + col)) * 4;
+                    for (let channel = 0; channel < 3; channel++) {
+                        const error = previewImageData.data[idx + channel] - reblurred.data[idx + channel];
+                        deblurred.data[idx + channel] = clampChannel(
+                            deblurred.data[idx + channel] + error * resolvedStepSize
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    const restored = cloneImageData(deblurred);
+    removeWatermark(restored, alphaMap, position, { alphaGain });
+    return restored;
+}
+
+export function restorePreviewRegionWithNeighborhoodPrior({
+    previewImageData,
+    alphaMap,
+    position,
+    alphaGain = 1,
+    priorImageData,
+    blendStrength = 0.85
+}) {
+    if (!previewImageData || !alphaMap || !position || !priorImageData) {
+        throw new TypeError('restorePreviewRegionWithNeighborhoodPrior requires previewImageData, alphaMap, position, and priorImageData');
+    }
+
+    const restored = cloneImageData(previewImageData);
+    removeWatermark(restored, alphaMap, position, { alphaGain });
+
+    const resolvedBlendStrength = Number.isFinite(blendStrength) ? blendStrength : 0.85;
+    for (let row = 0; row < position.height; row++) {
+        for (let col = 0; col < position.width; col++) {
+            const alpha = clamp01(alphaMap[row * position.width + col] * alphaGain);
+            if (alpha <= 0.001) continue;
+
+            const blend = Math.max(0, Math.min(1, Math.sqrt(alpha) * resolvedBlendStrength));
+            const idx = ((position.y + row) * restored.width + (position.x + col)) * 4;
+            for (let channel = 0; channel < 3; channel++) {
+                restored.data[idx + channel] = clampChannel(
+                    restored.data[idx + channel] * (1 - blend) +
+                    priorImageData.data[idx + channel] * blend
+                );
+            }
+        }
+    }
+
+    return restored;
 }

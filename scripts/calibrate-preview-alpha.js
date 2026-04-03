@@ -8,6 +8,7 @@ import { calculateAlphaMap } from '../src/core/alphaMap.js';
 import { interpolateAlphaMap } from '../src/core/adaptiveDetector.js';
 import {
     aggregatePreviewAlphaMaps,
+    fitPreviewOnlyRenderModel,
     estimatePreviewAlphaMap,
     fitConstrainedPreviewAlphaModel
 } from '../src/core/previewAlphaCalibration.js';
@@ -128,6 +129,11 @@ export async function calibratePreviewAlphaPairs({
             standardAlphaMap,
             position
         });
+        const previewOnly = fitPreviewOnlyRenderModel({
+            previewImageData,
+            standardAlphaMap,
+            position
+        });
         const freeformBucket = freeformBuckets.get(position.width) ?? [];
         freeformBucket.push(estimatedAlphaMap);
         freeformBuckets.set(position.width, freeformBucket);
@@ -147,6 +153,14 @@ export async function calibratePreviewAlphaPairs({
                 score: Number(constrained.score.toFixed(6)),
                 shift: constrained.params.shift,
                 blurRadius: constrained.params.blurRadius
+            },
+            previewOnlyFit: {
+                alphaGain: previewOnly.alphaGain,
+                score: Number(previewOnly.score.toFixed(6)),
+                shift: previewOnly.params.shift,
+                alphaBlurRadius: previewOnly.params.alphaBlurRadius,
+                compositeBlurRadius: previewOnly.params.compositeBlurRadius,
+                priorRadius: previewOnly.params.priorRadius
             }
         });
     }

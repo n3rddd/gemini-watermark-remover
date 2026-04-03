@@ -29,12 +29,17 @@ const SUBPIXEL_REFINE_SCALES = [0.99, 1, 1.01];
 const ALPHA_GAIN_CANDIDATES = [1.05, 1.12, 1.2, 1.28, 1.36, 1.45, 1.52, 1.6, 1.7, 1.85, 2.0, 2.2, 2.4, 2.6];
 const PREVIEW_EDGE_CLEANUP_MAX_SIZE = 40;
 const PREVIEW_EDGE_CLEANUP_SPATIAL_THRESHOLD = 0.08;
-const PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD = 0.24;
+const PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD = 0.1;
 const PREVIEW_EDGE_CLEANUP_MIN_GRADIENT_IMPROVEMENT = 0.03;
 const PREVIEW_EDGE_CLEANUP_MAX_SPATIAL_DRIFT = 0.04;
+const PREVIEW_EDGE_CLEANUP_MAX_APPLIED_PASSES = 3;
+const PREVIEW_EDGE_CLEANUP_FINE_GRADIENT_THRESHOLD = 0.16;
+const PREVIEW_EDGE_CLEANUP_FINE_MIN_GRADIENT_IMPROVEMENT = 0.005;
+const PREVIEW_EDGE_CLEANUP_HALO_RELAXED_MIN_GRADIENT_IMPROVEMENT = 0.01;
 const PREVIEW_EDGE_CLEANUP_HALO_WEIGHT = 0.02;
 const PREVIEW_EDGE_CLEANUP_MIN_HALO_REDUCTION = 1.5;
 const PREVIEW_EDGE_CLEANUP_STRONG_HALO_THRESHOLD = 4;
+const PREVIEW_EDGE_CLEANUP_HALO_SPATIAL_THRESHOLD = 0.18;
 const PREVIEW_EDGE_CLEANUP_PRESETS = Object.freeze([
     { minAlpha: 0.02, maxAlpha: 0.45, radius: 2, strength: 0.7, outsideAlphaMax: 0.05 },
     { minAlpha: 0.05, maxAlpha: 0.55, radius: 3, strength: 0.7, outsideAlphaMax: 0.08 },
@@ -345,13 +350,20 @@ function shouldRefinePreviewResidualEdge({
     source,
     position,
     baselineSpatialScore,
-    baselineGradientScore
+    baselineGradientScore,
+    baselinePositiveHalo
 }) {
     return typeof source === 'string' &&
         source.includes('preview-anchor') &&
         position?.width >= 24 &&
         position?.width <= PREVIEW_EDGE_CLEANUP_MAX_SIZE &&
-        Math.abs(baselineSpatialScore) <= PREVIEW_EDGE_CLEANUP_SPATIAL_THRESHOLD &&
+        (
+            Math.abs(baselineSpatialScore) <= PREVIEW_EDGE_CLEANUP_SPATIAL_THRESHOLD ||
+            (
+                baselinePositiveHalo >= PREVIEW_EDGE_CLEANUP_STRONG_HALO_THRESHOLD &&
+                Math.abs(baselineSpatialScore) <= PREVIEW_EDGE_CLEANUP_HALO_SPATIAL_THRESHOLD
+            )
+        ) &&
         baselineGradientScore >= PREVIEW_EDGE_CLEANUP_GRADIENT_THRESHOLD;
 }
 
@@ -439,22 +451,31 @@ function refinePreviewResidualEdge({
     maxSpatialDrift = PREVIEW_EDGE_CLEANUP_MAX_SPATIAL_DRIFT,
     allowAggressivePresets = false
 }) {
+    const baselineHalo = assessAlphaBandHalo({
+        imageData: sourceImageData,
+        position,
+        alphaMap
+    });
+    const baselinePositiveHalo = baselineHalo.positiveDeltaLum;
     if (!shouldRefinePreviewResidualEdge({
         source,
         position,
         baselineSpatialScore,
-        baselineGradientScore
+        baselineGradientScore,
+        baselinePositiveHalo
     })) {
         return null;
     }
 
     const baselineNearBlackRatio = calculateNearBlackRatio(sourceImageData, position);
     const maxAllowedNearBlackRatio = Math.min(1, baselineNearBlackRatio + MAX_NEAR_BLACK_RATIO_INCREASE);
-    const baselineHalo = assessAlphaBandHalo({
-        imageData: sourceImageData,
-        position,
-        alphaMap
-    });
+    const resolvedMinGradientImprovement = baselineGradientScore <= PREVIEW_EDGE_CLEANUP_FINE_GRADIENT_THRESHOLD
+        ? PREVIEW_EDGE_CLEANUP_FINE_MIN_GRADIENT_IMPROVEMENT
+        : (
+            baselinePositiveHalo >= PREVIEW_EDGE_CLEANUP_STRONG_HALO_THRESHOLD
+                ? PREVIEW_EDGE_CLEANUP_HALO_RELAXED_MIN_GRADIENT_IMPROVEMENT
+                : minGradientImprovement
+        );
     const presets = allowAggressivePresets &&
         baselineGradientScore >= PREVIEW_EDGE_CLEANUP_STRONG_GRADIENT_THRESHOLD &&
         Math.abs(baselineSpatialScore) <= 0.05
@@ -488,13 +509,12 @@ function refinePreviewResidualEdge({
             alphaMap
         });
 
-        const presetMinGradientImprovement = preset.minGradientImprovement ?? minGradientImprovement;
+        const presetMinGradientImprovement = preset.minGradientImprovement ?? resolvedMinGradientImprovement;
         const presetMaxSpatialDrift = preset.maxSpatialDrift ?? maxSpatialDrift;
         const presetMaxAcceptedSpatial = preset.maxAcceptedSpatial ?? 0.22;
         const improvedGradient = gradientScore <= baselineGradientScore - presetMinGradientImprovement;
         const keptSpatial = Math.abs(spatialScore) <= Math.abs(baselineSpatialScore) + presetMaxSpatialDrift;
         const keptResidualWithinTarget = Math.abs(spatialScore) <= presetMaxAcceptedSpatial;
-        const baselinePositiveHalo = baselineHalo.positiveDeltaLum;
         const candidatePositiveHalo = halo.positiveDeltaLum;
         const improvedHalo = baselinePositiveHalo < PREVIEW_EDGE_CLEANUP_STRONG_HALO_THRESHOLD ||
             candidatePositiveHalo <= baselinePositiveHalo - PREVIEW_EDGE_CLEANUP_MIN_HALO_REDUCTION;
@@ -767,10 +787,6 @@ export function processWatermarkImageData(imageData, options = {}) {
         return true;
     };
 
-    if (usePreviewAnchorFastCleanup) {
-        applyPreviewEdgeCleanup();
-    }
-
     const subpixelStartedAt = nowMs();
     if (
         !usePreviewAnchorFastCleanup &&
@@ -810,7 +826,13 @@ export function processWatermarkImageData(imageData, options = {}) {
         debugTimings.subpixelRefinementMs = nowMs() - subpixelStartedAt;
     }
 
-    applyPreviewEdgeCleanup();
+    let previewEdgeCleanupPassCount = 0;
+    while (previewEdgeCleanupPassCount < PREVIEW_EDGE_CLEANUP_MAX_APPLIED_PASSES) {
+        if (!applyPreviewEdgeCleanup()) {
+            break;
+        }
+        previewEdgeCleanupPassCount++;
+    }
     if (debugTimingsEnabled) {
         debugTimings.previewEdgeCleanupMs = previewEdgeCleanupElapsedMs;
         debugTimings.totalMs = nowMs() - totalStartedAt;

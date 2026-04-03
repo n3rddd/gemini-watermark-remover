@@ -931,8 +931,8 @@ test('21-9-preview.png should use preview-anchor edge cleanup to reduce residual
             `expected preview watermark size near 30px, got ${result.meta.position.width}`
         );
         assert.ok(
-            result.meta.detection.processedGradientScore < 0.15,
-            `expected residual preview gradient < 0.15, got ${result.meta.detection.processedGradientScore}`
+            result.meta.detection.processedGradientScore < 0.11,
+            `expected residual preview gradient < 0.11, got ${result.meta.detection.processedGradientScore}`
         );
 
         const halo = measureAlphaBandHalo(result.imageData, result.meta.position, interpolateAlphaMap(alpha96, 96, result.meta.position.width));

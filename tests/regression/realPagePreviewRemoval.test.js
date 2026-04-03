@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 
 import { calculateAlphaMap } from '../../src/core/alphaMap.js';
 import { interpolateAlphaMap, computeRegionSpatialCorrelation } from '../../src/core/adaptiveDetector.js';
+import { assessAlphaBandHalo } from '../../src/core/restorationMetrics.js';
 import { processWatermarkImageData } from '../../src/core/watermarkProcessor.js';
 import {
     decodeImageDataInPage,
@@ -172,6 +173,22 @@ test('real Gemini strong preview fixture should keep aggressive edge cleanup wit
         assert.ok(
             result.meta.source.includes('+edge-cleanup'),
             `expected strong preview fixture to use edge cleanup, source=${result.meta.source}`
+        );
+        const alphaMap = interpolateAlphaMap(alpha96, 96, result.meta.position.width);
+        const halo = assessAlphaBandHalo({
+            imageData: result.imageData,
+            position: result.meta.position,
+            alphaMap,
+            minAlpha: 0.2,
+            maxAlpha: 0.35
+        });
+        assert.ok(
+            result.meta.detection.processedGradientScore < 0.29,
+            `expected strong preview residual gradient < 0.29, got ${result.meta.detection.processedGradientScore}`
+        );
+        assert.ok(
+            halo.deltaLum < 6,
+            `expected strong preview contour halo delta < 6, got ${halo.deltaLum}`
         );
         assert.ok(
             result.debugTimings.subpixelRefinementMs < 5,
