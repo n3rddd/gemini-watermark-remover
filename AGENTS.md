@@ -43,6 +43,17 @@ Do this only once in the fixed profile:
 - Installed userscript freshness check: `pnpm probe:tm:freshness`
 - Open fixed profile: `pnpm probe:tm:profile`
 
+Current `pnpm probe:tm` behavior:
+
+- in `run` mode it now attempts a Tampermonkey userscript freshness preflight first
+- if freshness returns `stale`, `probe:tm` must fail before running the worker/bridge smoke page
+- if the freshness preflight context itself is unavailable, for example:
+  - fixed `9226` profile is not open
+  - the Tampermonkey editor page is not open yet
+  - the editor is mid-navigation
+  then the preflight is recorded as `skipped` and the smoke flow continues
+- this keeps stale installs fail-fast without making `probe:tm` hard-depend on a manually opened editor page
+
 ### Installed Userscript Freshness Check
 
 When real-page behavior does not match the current worktree, verify the installed userscript body, not just the script name or `@version`.

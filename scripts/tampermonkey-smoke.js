@@ -6,6 +6,11 @@ import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 import { chromium } from 'playwright';
+import {
+  DEFAULT_TAMPERMONKEY_FRESHNESS_CDP_URL,
+  runTampermonkeyFreshnessCheck,
+  shouldFailTampermonkeyFreshnessCheck
+} from './tampermonkey-freshness.js';
 
 const ROOT_DIR = process.cwd();
 const PUBLIC_DIR = path.resolve(ROOT_DIR, 'public');
@@ -194,6 +199,63 @@ export function shouldReuseProbePage(currentUrl = '', nextUrl = '') {
   }
 }
 
+function shouldSkipFreshnessPreflightError(error) {
+  const message = typeof error?.message === 'string'
+    ? error.message
+    : String(error ?? '');
+  return message.includes('未找到已打开的 Tampermonkey 编辑器页面') ||
+    message.includes('Tampermonkey 编辑器页面中没有可读取的 CodeMirror 脚本源码') ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('connect ECONNREFUSED') ||
+    message.includes('Execution context was destroyed') ||
+    message.includes('Unexpected server response');
+}
+
+export async function maybeRunFreshnessPreflight({
+  mode = 'run',
+  runFreshnessCheck = null,
+  logger = console
+} = {}) {
+  if (mode !== 'run') {
+    return {
+      status: 'skipped',
+      reason: 'setup-mode'
+    };
+  }
+
+  if (typeof runFreshnessCheck !== 'function') {
+    return {
+      status: 'skipped',
+      reason: 'no-runner'
+    };
+  }
+
+  try {
+    const result = await runFreshnessCheck();
+    const freshness = result?.report?.freshness || null;
+    if (shouldFailTampermonkeyFreshnessCheck(freshness)) {
+      throw new Error(
+        `Tampermonkey userscript is stale. report=${result?.reportPath || ''}`.trim()
+      );
+    }
+
+    return {
+      status: 'ok',
+      reportPath: result?.reportPath || '',
+      freshness
+    };
+  } catch (error) {
+    if (shouldSkipFreshnessPreflightError(error)) {
+      logger?.warn?.('[GWR] Skipping Tampermonkey freshness preflight:', error?.message || error);
+      return {
+        status: 'skipped',
+        reason: error?.message || String(error)
+      };
+    }
+    throw error;
+  }
+}
+
 async function waitForCdpReady(port, timeoutMs = 15000) {
   const endpoint = `http://127.0.0.1:${port}/json/version`;
   const startedAt = Date.now();
@@ -317,6 +379,7 @@ export async function runTampermonkeySmoke(options = {}) {
     : DEFAULT_PROXY_SERVER;
   const keepOpen = Boolean(options.keepOpen);
   const closeOnSuccess = options.closeOnSuccess !== false;
+  const freshnessCdpUrl = options.freshnessCdpUrl || DEFAULT_TAMPERMONKEY_FRESHNESS_CDP_URL;
 
   const { server, baseUrl } = await startProbeServer({ host, port });
   const debugPort = port + 1000;
@@ -330,6 +393,14 @@ export async function runTampermonkeySmoke(options = {}) {
   const page = pages[0] || await session.context.newPage();
 
   try {
+    const freshnessPreflight = await maybeRunFreshnessPreflight({
+      mode,
+      logger: console,
+      runFreshnessCheck: () => runTampermonkeyFreshnessCheck({
+        cdpUrl: freshnessCdpUrl
+      })
+    });
+
     if (mode === 'setup') {
       await page.goto(`${baseUrl}/tampermonkey-worker-probe.html?setup=1`, {
         waitUntil: 'domcontentloaded',
@@ -348,6 +419,7 @@ export async function runTampermonkeySmoke(options = {}) {
     const probeState = await waitForProbeCompletion(page);
     const report = {
       ...probeState,
+      freshnessPreflight,
       mode,
       baseUrl,
       profileDir,

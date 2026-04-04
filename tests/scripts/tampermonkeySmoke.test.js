@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   DEFAULT_TAMPERMONKEY_PROFILE_DIR,
   buildTampermonkeySmokeChromeArgs,
+  maybeRunFreshnessPreflight,
   shouldReuseProbePage,
   parseTampermonkeySmokeCliArgs
 } from '../../scripts/tampermonkey-smoke.js';
@@ -75,6 +76,54 @@ test('package.json should expose tampermonkey probe commands', () => {
 
   assert.equal(pkg.scripts['probe:tm'], 'node scripts/tampermonkey-smoke.js run');
   assert.equal(pkg.scripts['probe:tm:setup'], 'node scripts/tampermonkey-smoke.js setup');
+});
+
+test('maybeRunFreshnessPreflight should gate run mode on stale installed userscripts but skip setup mode', async () => {
+  const staleResult = {
+    reportPath: '.artifacts/tampermonkey-freshness/latest.json',
+    report: {
+      freshness: {
+        status: 'stale'
+      }
+    }
+  };
+
+  await assert.rejects(
+    maybeRunFreshnessPreflight({
+      mode: 'run',
+      runFreshnessCheck: async () => staleResult
+    }),
+    /Tampermonkey userscript is stale/
+  );
+
+  const setupResult = await maybeRunFreshnessPreflight({
+    mode: 'setup',
+    runFreshnessCheck: async () => staleResult
+  });
+  assert.deepEqual(setupResult, {
+    status: 'skipped',
+    reason: 'setup-mode'
+  });
+});
+
+test('maybeRunFreshnessPreflight should treat unavailable freshness context as skippable preflight', async () => {
+  const result = await maybeRunFreshnessPreflight({
+    mode: 'run',
+    runFreshnessCheck: async () => {
+      throw new Error('未找到已打开的 Tampermonkey 编辑器页面');
+    }
+  });
+
+  assert.equal(result.status, 'skipped');
+  assert.match(result.reason, /Tampermonkey 编辑器页面/);
+});
+
+test('runTampermonkeySmoke should wire freshness preflight before the probe page flow', () => {
+  const source = readFileSync(new URL('../../scripts/tampermonkey-smoke.js', import.meta.url), 'utf8');
+
+  assert.match(source, /maybeRunFreshnessPreflight/);
+  assert.match(source, /const freshnessPreflight = await maybeRunFreshnessPreflight\(/);
+  assert.match(source, /freshnessPreflight,/);
 });
 
 test('tampermonkey probe userscript should use DOM sandbox and local host matches', () => {
