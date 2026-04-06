@@ -953,6 +953,53 @@ function resolveStandardAnchorSelection({
     };
 }
 
+function resolveCandidatePromotion(candidate, {
+    reliableMatch = false
+} = {}) {
+    if (!candidate?.accepted) {
+        return null;
+    }
+
+    if (reliableMatch) {
+        return {
+            candidate,
+            decisionTier: 'direct-match'
+        };
+    }
+
+    return {
+        candidate: {
+            ...candidate,
+            source: `${candidate.source}+validated`
+        },
+        decisionTier: 'validated-match'
+    };
+}
+
+function promoteBaseCandidate(baseCandidate, baseDecisionTier, candidate, {
+    reliableMatch = false,
+    minCostDelta = 0.002
+} = {}) {
+    const promotion = resolveCandidatePromotion(candidate, {
+        reliableMatch
+    });
+    if (!promotion) {
+        return {
+            baseCandidate,
+            baseDecisionTier
+        };
+    }
+
+    const previousCandidate = baseCandidate;
+    const nextCandidate = pickBetterCandidate(baseCandidate, promotion.candidate, minCostDelta);
+    return {
+        baseCandidate: nextCandidate,
+        baseDecisionTier: nextCandidate !== previousCandidate
+            ? promotion.decisionTier
+            : baseDecisionTier
+    };
+}
+
 function evaluateAdaptiveTrial({
     originalImageData,
     config,
@@ -1182,25 +1229,15 @@ export function selectInitialCandidate({
     let adaptiveTrial = null;
     for (const candidate of standardTrials) {
         if (!candidate || candidate === standardTrial) continue;
-        const hasReliableCandidateMatch = hasReliableStandardWatermarkSignal({
-            spatialScore: candidate.originalSpatialScore,
-            gradientScore: candidate.originalGradientScore
-        });
-        const standardCandidate = candidate.accepted
-            ? (hasReliableCandidateMatch
-                ? candidate
-                : {
-                    ...candidate,
-                    source: `${candidate.source}+validated`
-                })
-            : null;
-        const previousCandidate = baseCandidate;
-        baseCandidate = pickBetterCandidate(baseCandidate, standardCandidate, 0.002);
-        if (baseCandidate !== previousCandidate && baseCandidate) {
-            baseDecisionTier = hasReliableCandidateMatch
-                ? 'direct-match'
-                : 'validated-match';
-        }
+        ({
+            baseCandidate,
+            baseDecisionTier
+        } = promoteBaseCandidate(baseCandidate, baseDecisionTier, candidate, {
+            reliableMatch: hasReliableStandardWatermarkSignal({
+                spatialScore: candidate.originalSpatialScore,
+                gradientScore: candidate.originalGradientScore
+            })
+        }));
     }
 
     const previewAnchorCandidate = searchBottomRightPreviewCandidate({
@@ -1213,14 +1250,10 @@ export function selectInitialCandidate({
         adaptiveConfidence
     });
     if (previewAnchorCandidate) {
-        const previousCandidate = baseCandidate;
-        baseCandidate = pickBetterCandidate(baseCandidate, {
-            ...previewAnchorCandidate,
-            source: `${previewAnchorCandidate.source}+validated`
-        }, 0.002);
-        if (baseCandidate !== previousCandidate && baseCandidate) {
-            baseDecisionTier = 'validated-match';
-        }
+        ({
+            baseCandidate,
+            baseDecisionTier
+        } = promoteBaseCandidate(baseCandidate, baseDecisionTier, previewAnchorCandidate));
     }
 
     if (
@@ -1237,14 +1270,10 @@ export function selectInitialCandidate({
             resolveAlphaMap
         });
         if (sizeJitterCandidate) {
-            const previousCandidate = baseCandidate;
-            baseCandidate = pickBetterCandidate(baseCandidate, {
-                ...sizeJitterCandidate,
-                source: `${sizeJitterCandidate.source}+validated`
-            }, 0.002);
-            if (baseCandidate !== previousCandidate && baseCandidate) {
-                baseDecisionTier = 'validated-match';
-            }
+            ({
+                baseCandidate,
+                baseDecisionTier
+            } = promoteBaseCandidate(baseCandidate, baseDecisionTier, sizeJitterCandidate));
         }
     }
 
@@ -1261,11 +1290,10 @@ export function selectInitialCandidate({
             adaptiveConfidence
         });
         if (fineLocalCandidate) {
-            const previousCandidate = baseCandidate;
-            baseCandidate = pickBetterCandidate(baseCandidate, fineLocalCandidate, 0.002);
-            if (baseCandidate !== previousCandidate && baseCandidate) {
-                baseDecisionTier = 'validated-match';
-            }
+            ({
+                baseCandidate,
+                baseDecisionTier
+            } = promoteBaseCandidate(baseCandidate, baseDecisionTier, fineLocalCandidate));
         }
     }
 
@@ -1300,22 +1328,12 @@ export function selectInitialCandidate({
     }
 
     if (adaptiveTrial) {
-        const hasReliableAdaptiveMatch = hasReliableAdaptiveWatermarkSignal(adaptive);
-        const adaptiveCandidate = adaptiveTrial.accepted
-            ? (hasReliableAdaptiveMatch
-                ? adaptiveTrial
-                : {
-                    ...adaptiveTrial,
-                    source: `${adaptiveTrial.source}+validated`
-                })
-            : null;
-        const previousCandidate = baseCandidate;
-        baseCandidate = pickBetterCandidate(baseCandidate, adaptiveCandidate, 0.002);
-        if (baseCandidate !== previousCandidate && baseCandidate) {
-            baseDecisionTier = hasReliableAdaptiveMatch
-                ? 'direct-match'
-                : 'validated-match';
-        }
+        ({
+            baseCandidate,
+            baseDecisionTier
+        } = promoteBaseCandidate(baseCandidate, baseDecisionTier, adaptiveTrial, {
+            reliableMatch: hasReliableAdaptiveWatermarkSignal(adaptive)
+        }));
     }
 
     if (
@@ -1329,14 +1347,10 @@ export function selectInitialCandidate({
             adaptiveConfidence
         });
         if (nearbyStandardCandidate) {
-            const previousCandidate = baseCandidate;
-            baseCandidate = pickBetterCandidate(baseCandidate, {
-                ...nearbyStandardCandidate,
-                source: `${nearbyStandardCandidate.source}+validated`
-            }, 0.002);
-            if (baseCandidate !== previousCandidate && baseCandidate) {
-                baseDecisionTier = 'validated-match';
-            }
+            ({
+                baseCandidate,
+                baseDecisionTier
+            } = promoteBaseCandidate(baseCandidate, baseDecisionTier, nearbyStandardCandidate));
         }
     }
 
