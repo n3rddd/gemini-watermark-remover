@@ -26,3 +26,4 @@ src/assets/samples/*-fix.*
 .worktrees
 src/assets/samples/fix/
 .omx/
+docs/superpowers/
