@@ -366,80 +366,81 @@ function isStandardCandidateSource(candidate) {
     return typeof candidate?.source === 'string' && candidate.source.startsWith('standard');
 }
 
-function shouldPreserveStrongStandardAnchor(currentBest, candidate) {
-    const candidateIsDriftedStandard =
-        isStandardCandidateSource(candidate) &&
+function isDriftedStandardCandidate(candidate) {
+    return isStandardCandidateSource(candidate) &&
         (
             candidate?.provenance?.localShift === true ||
             candidate?.provenance?.sizeJitter === true ||
             String(candidate?.source || '').includes('+warp')
         );
-    if (!candidateIsDriftedStandard) return false;
-    if (currentBest?.provenance?.localShift === true) return false;
-    if (!isStandardCandidateSource(currentBest) || !isStandardCandidateSource(candidate)) return false;
+}
 
-    const baseSpatial = Number(currentBest.originalSpatialScore);
-    const baseGradient = Number(currentBest.originalGradientScore);
-    const candidateSpatial = Number(candidate.originalSpatialScore);
-    const candidateGradient = Number(candidate.originalGradientScore);
+function isCanonicalStandardCandidate(candidate) {
+    return isStandardCandidateSource(candidate) &&
+        candidate?.provenance?.localShift !== true &&
+        candidate?.provenance?.sizeJitter !== true;
+}
+
+function hasStrongCanonicalAnchorSignal(candidate) {
+    const baseSpatial = Number(candidate?.originalSpatialScore);
+    const baseGradient = Number(candidate?.originalGradientScore);
+    if (!Number.isFinite(baseSpatial) || !Number.isFinite(baseGradient)) {
+        return false;
+    }
+    return baseGradient >= STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE ||
+        baseSpatial >= STANDARD_LOCAL_SHIFT_STRONG_BASE_SPATIAL_SCORE;
+}
+
+function hasWeakDriftEvidence(candidate) {
+    const candidateSpatial = Number(candidate?.originalSpatialScore);
+    const candidateGradient = Number(candidate?.originalGradientScore);
+    if (!Number.isFinite(candidateSpatial) || !Number.isFinite(candidateGradient)) {
+        return false;
+    }
+    return candidateGradient < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE ||
+        candidateSpatial < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_SPATIAL_SCORE;
+}
+
+function leavesWorseResidualGradientThanCanonical(canonicalCandidate, driftCandidate) {
+    const canonicalProcessedGradientRaw = Number(canonicalCandidate?.processedGradientScore);
+    const driftProcessedGradientRaw = Number(driftCandidate?.processedGradientScore);
+    if (
+        !Number.isFinite(canonicalProcessedGradientRaw) ||
+        !Number.isFinite(driftProcessedGradientRaw)
+    ) {
+        return false;
+    }
+
+    return Math.max(0, canonicalProcessedGradientRaw) <= STANDARD_LOCAL_SHIFT_PRESERVE_CLEAN_BASE_GRADIENT_THRESHOLD &&
+        Math.max(0, driftProcessedGradientRaw) >= STANDARD_LOCAL_SHIFT_MAX_CANDIDATE_GRADIENT_FOR_CLEAN_BASE;
+}
+
+function shouldPreserveStrongStandardAnchor(currentBest, candidate) {
+    if (!isDriftedStandardCandidate(candidate)) return false;
+    if (currentBest?.provenance?.localShift === true) return false;
+    if (!isCanonicalStandardCandidate(currentBest) || !isStandardCandidateSource(candidate)) return false;
+
     const validationAdvantage = Number(currentBest.validationCost) - Number(candidate.validationCost);
     if (
-        !Number.isFinite(baseSpatial) ||
-        !Number.isFinite(baseGradient) ||
-        !Number.isFinite(candidateSpatial) ||
-        !Number.isFinite(candidateGradient) ||
         !Number.isFinite(validationAdvantage)
     ) {
         return false;
     }
 
-    // A nearby shift should not displace a default anchor that already carries
-    // strong watermark evidence unless the shifted/jittered candidate is
-    // materially better overall.
-    const strongBaseSignal =
-        baseGradient >= STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE ||
-        baseSpatial >= STANDARD_LOCAL_SHIFT_STRONG_BASE_SPATIAL_SCORE;
-    const weakCandidateSignal =
-        candidateGradient < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE ||
-        candidateSpatial < STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_SPATIAL_SCORE;
-    const baseProcessedGradientRaw = Number(currentBest.processedGradientScore);
-    const candidateProcessedGradientRaw = Number(candidate.processedGradientScore);
-    const cleanBaseResidual =
-        Number.isFinite(baseProcessedGradientRaw) &&
-        Number.isFinite(candidateProcessedGradientRaw) &&
-        Math.max(0, baseProcessedGradientRaw) <= STANDARD_LOCAL_SHIFT_PRESERVE_CLEAN_BASE_GRADIENT_THRESHOLD &&
-        Math.max(0, candidateProcessedGradientRaw) >= STANDARD_LOCAL_SHIFT_MAX_CANDIDATE_GRADIENT_FOR_CLEAN_BASE;
-
     return (
-        strongBaseSignal &&
-        weakCandidateSignal &&
+        hasStrongCanonicalAnchorSignal(currentBest) &&
+        hasWeakDriftEvidence(candidate) &&
         validationAdvantage < STANDARD_LOCAL_SHIFT_MIN_VALIDATION_ADVANTAGE
-    ) || cleanBaseResidual;
+    ) || leavesWorseResidualGradientThanCanonical(currentBest, candidate);
 }
 
 function shouldRevertLocalShiftToStandardTrial(selectedCandidate, standardTrial) {
     if (selectedCandidate?.provenance?.localShift !== true) return false;
     if (!isStandardCandidateSource(selectedCandidate) || !isStandardCandidateSource(standardTrial)) return false;
     if (!standardTrial?.accepted) return false;
-
-    const standardOriginalGradient = Math.max(0, Number(standardTrial.originalGradientScore));
-    const standardProcessedGradient = Math.max(0, Number(standardTrial.processedGradientScore));
-    const selectedOriginalGradient = Math.max(0, Number(selectedCandidate.originalGradientScore));
-    const selectedProcessedGradient = Math.max(0, Number(selectedCandidate.processedGradientScore));
-
-    if (
-        !Number.isFinite(standardOriginalGradient) ||
-        !Number.isFinite(standardProcessedGradient) ||
-        !Number.isFinite(selectedOriginalGradient) ||
-        !Number.isFinite(selectedProcessedGradient)
-    ) {
-        return false;
-    }
-
-    return standardOriginalGradient >= STANDARD_LOCAL_SHIFT_STRONG_BASE_GRADIENT_SCORE &&
-        standardProcessedGradient <= STANDARD_LOCAL_SHIFT_PRESERVE_CLEAN_BASE_GRADIENT_THRESHOLD &&
-        selectedOriginalGradient <= STANDARD_LOCAL_SHIFT_WEAK_CANDIDATE_GRADIENT_SCORE &&
-        selectedProcessedGradient >= standardProcessedGradient + 0.03;
+    return hasStrongCanonicalAnchorSignal(standardTrial) &&
+        hasWeakDriftEvidence(selectedCandidate) &&
+        leavesWorseResidualGradientThanCanonical(standardTrial, selectedCandidate);
 }
 
 function shouldSkipStandardLocalSearch(seedCandidate) {
