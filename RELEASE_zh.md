@@ -6,7 +6,7 @@
 
 - 网站构建产物：`dist/`
 - 油猴脚本产物：`dist/userscript/gemini-watermark-remover.user.js`
-- `package.json` 对应的 package/sdk 元数据
+- `package.json`、`src/core/`、`src/sdk/` 对应的 package/sdk 源码与元数据
 
 ## 发布前检查
 
@@ -21,7 +21,9 @@ pnpm build
 预期结果：
 
 - 所有测试通过
+- `dist/` 下的网站构建产物已按当前代码重新生成
 - `dist/userscript/gemini-watermark-remover.user.js` 已重新生成
+- `package.json` 中的 package/sdk 入口仍与实际发布源码布局一致
 - 生成后的 userscript 元数据使用当前 `package.json` 版本号
 
 ## 版本元数据
@@ -33,6 +35,7 @@ pnpm build
 ## 人工验证
 
 - 在 Tampermonkey 或 Violentmonkey 中安装或更新生成后的 userscript
+- 验证本地安装版本时，针对固定 profile 运行一次 `pnpm probe:tm:freshness`
 - 验证 Gemini 页面预览图替换链路正常
 - 验证 Gemini 原生复制/下载动作仍返回去水印后的结果
 - 验证预览图处理失败时页面原图仍保持可见

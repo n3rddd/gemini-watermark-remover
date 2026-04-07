@@ -21,7 +21,7 @@
 - ✅ **纯浏览器端处理** - 无需后端服务器，所有处理在本地完成
 - ✅ **隐私保护** - 图片不会上传到任何服务器
 - ✅ **数学精确** - 基于反向 Alpha 混合算法，非 AI 模型
-- ✅ **自动检测** - 自动识别 48×48 或 96×96 水印尺寸
+- ✅ **自动检测** - 结合 Gemini 官方尺寸目录、局部锚点搜索，以及对非标准尺寸的插值 alpha map 处理
 - ✅ **易于使用** - 拖拽选择图片，一键处理
 - ✅ **跨平台** - 支持所有现代浏览器
 
@@ -109,6 +109,11 @@ pnpm build
 pnpm serve
 ```
 
+### Cloudflare 部署说明
+
+- `wrangler.toml` 是这个项目用于 Cloudflare Worker/静态资产入口的部署配置。
+- 它负责让 Wrangler 指向构建后的 `dist/` 目录；即使本地测试或源码导入没有直接引用它，也不应把它当作冗余文件删除。
+
 ### macOS 下调试油猴固定 Profile
 
 如果要走仓库内置的固定 profile 调试流，macOS 下建议直接用：
@@ -129,7 +134,9 @@ pnpm dev
 - 固定 profile 目录是 `.chrome-debug/tampermonkey-profile`
 - 默认 CDP 端口是 `9226`
 - 默认代理是 `http://127.0.0.1:7890`，不需要时可加 `--proxy off`
-- 验证最新构建时，请从 `http://127.0.0.1:4173/userscript/gemini-watermark-remover.user.js` 重新安装 userscript
+- 验证最新构建时，请从当前 `pnpm dev` 实际启动的本地服务地址重新安装 userscript
+- `pnpm dev` 默认从 `http://127.0.0.1:4173/` 开始探测；如果端口被占用，会自动递增
+- 如果你参考的是之前某次调试记录，端口可能不是 `4173`；以当前 `pnpm dev` 输出为准
 
 ## SDK 用法
 
@@ -258,6 +265,7 @@ gemini-watermark-remover/
 │   ├── app.js             # 网站应用入口
 │   └── i18n.js            # 国际化工具
 ├── dist/                  # 构建输出目录
+├── wrangler.toml          # Cloudflare Worker/静态资产部署配置
 ├── scripts/               # 本地自动化与调试启动脚本
 ├── build.js               # 构建脚本
 └── package.json
@@ -305,15 +313,14 @@ export function removeWatermark(imageData, alphaMap, position) {
 ```javascript
 export class WatermarkEngine {
     async removeWatermarkFromImage(image) {
-        // 1. 检测水印尺寸
-        const config = detectWatermarkConfig(width, height);
-
-        // 2. 获取 alpha map
-        const alphaMap = await this.getAlphaMap(config.logoSize);
-
-        // 3. 移除水印
-        removeWatermark(imageData, alphaMap, position);
-
+        const alpha48 = await this.getAlphaMap(48);
+        const alpha96 = await this.getAlphaMap(96);
+        const result = processWatermarkImageData(imageData, {
+            alpha48,
+            alpha96,
+            adaptiveMode: 'auto'
+        });
+        ctx.putImageData(result.imageData, 0, 0);
         return canvas;
     }
 }
@@ -331,6 +338,7 @@ export class WatermarkEngine {
 - Canvas API
 - Async/Await
 - TypedArray (Float32Array, Uint8ClampedArray)
+- 如果要使用网页上的“复制结果”按钮，还需要 `navigator.clipboard.write(...)` 和 `ClipboardItem`
 
 ---
 
@@ -338,11 +346,11 @@ export class WatermarkEngine {
 
 - 只去除了 **Gemini 可见的水印**<small>（即右下角的半透明 Logo）</small>
 - 无法去除隐形或隐写水印。<small>[（了解更多关于 SynthID 的信息）](https://support.google.com/gemini/answer/16722517)</small>
-- 针对 Gemini 当前的水印模式设计<small>（截至 2025 年）</small>
+- 针对 Gemini 当前的可见水印模式设计<small>（本仓库验证范围截至 2026 年 4 月）</small>
 
 ## 免责声明
 
-本工具仅限**个人学习研究**所用，不得用于商业用途。
+本项目采用 **MIT License** 发布。
 
 根据您所在的司法管辖区及图像的实际用途，移除水印的行为可能具有潜在的法律影响。用户需自行确保其使用行为符合适用法律、相关服务条款以及知识产权规定，并对此承担全部责任。
 

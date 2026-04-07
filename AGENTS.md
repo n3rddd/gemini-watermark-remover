@@ -2,6 +2,12 @@
 
 ## Debug Workflow
 
+## Deployment Note
+
+- `wrangler.toml` is an active project file.
+- This repo is deployed with Cloudflare Worker/assets using Wrangler, with `dist/` as the deployment asset directory.
+- Do not classify `wrangler.toml` as redundant only because it is not imported by app code or covered by local tests.
+
 ### Fixed Tampermonkey / Gemini Environment
 
 - Fixed Chrome profile: `.chrome-debug/tampermonkey-profile`
@@ -29,7 +35,9 @@ Default behavior:
 - Reuse the fixed Chrome profile
 - Open remote debugging on port `9226`
 - Use the local proxy
-- Open the local probe page by default, or a passed target URL
+- The plain Node launcher opens the Tampermonkey Chrome Web Store page by default unless `--url` is passed
+- The shell wrapper opens the local probe page on `http://127.0.0.1:4173/tampermonkey-worker-probe.html` by default and still forwards extra args
+- The current CMD/PowerShell wrappers are fixed shortcuts to the same local probe page; they do not forward additional CLI args
 
 macOS quick path:
 
@@ -47,14 +55,16 @@ Do this only once in the fixed profile:
 3. Keep Developer Mode enabled.
 4. Install `public/tampermonkey-worker-probe.user.js` when local probe validation is needed.
 5. Install or reinstall the production userscript from the current local build server when validating the latest build.
-   - Preferred current dev URL: `http://127.0.0.1:4317/userscript/gemini-watermark-remover.user.js`
-   - Do not assume `4173` is current if another static server is already running there.
+   - Use the active local build server URL printed by `pnpm dev`
+   - `pnpm dev` starts probing from `http://127.0.0.1:4173/` and will auto-increment if that port is occupied
+   - A previously confirmed request-layer debugging session used `http://127.0.0.1:4317/userscript/gemini-watermark-remover.user.js`, but do not assume that is still current
 
 ### Local Build and Services
 
 - Production build: `pnpm build`
 - Local dist server: `pnpm dev`, `pnpm serve`, or the active local build server for this worktree
-- Current confirmed dev server during request-layer debugging: `http://127.0.0.1:4317/`
+- Default `pnpm dev` start port: `http://127.0.0.1:4173/`
+- Actual active dev server port may be higher; always trust the current `pnpm dev` console output
 - Probe smoke test: `pnpm probe:tm`
 - Installed userscript freshness check: `pnpm probe:tm:freshness`
 - Open fixed profile: `pnpm probe:tm:profile`
@@ -65,7 +75,7 @@ Current `pnpm probe:tm` behavior:
 - if freshness returns `stale`, `probe:tm` must fail before running the worker/bridge smoke page
 - if the freshness preflight context itself is unavailable, for example:
   - fixed `9226` profile is not open
-  - the Tampermonkey editor page is not open yet
+  - the CDP endpoint is unavailable
   - the editor is mid-navigation
   then the preflight is recorded as `skipped` and the smoke flow continues
 - this keeps stale installs fail-fast without making `probe:tm` hard-depend on a manually opened editor page
@@ -135,23 +145,22 @@ Current confirmed request-layer behavior on the fixed profile:
 - All ready images on the current Gemini page: `pnpm probe:real-page:compare --all`
 - Latest batch summary:
   - `.artifacts/real-page-pixel-compare/latest-summary.json`
+- Complex-figure validation checklist:
+  - `docs/complex-figure-verification-checklist.md`
 
 Use this when page-level screenshots are not enough and you need original blob pixel metrics for `before/after`.
 
-Current confirmed real-page batch baseline on the fixed profile:
+Do not rely on hardcoded sample counts here. Treat `.artifacts/real-page-pixel-compare/latest-summary.json` as the source of truth for the current worktree.
 
-- 5 preview images reached `state=ready`
-- Easier samples currently land around:
-  - `afterSpatial ~= 0.017 ~ 0.040`
-  - `afterGradient ~= 0.075 ~ 0.098`
-- Stronger watermark samples currently land around:
-  - `afterSpatial ~= 0.133 ~ 0.155`
-  - `afterGradient ~= 0.295 ~ 0.304`
+Current checked local summary in this worktree:
 
-These stronger-sample numbers are intentional tradeoffs after edge cleanup:
+- artifact timestamp: `2026-04-06T07:25:13.120Z`
+- `total = 1`
+- the recorded ready image landed at:
+  - `afterSpatial ~= -0.2707`
+  - `afterGradient ~= 0.1075`
 
-- They are much better than the older `afterGradient ~= 0.53` level.
-- They keep residuals inside the current safety envelope instead of risking content damage.
+Historical multi-image baselines from earlier fixed-profile sessions should be treated as dated reference points, not as the current expected batch shape.
 
 ### Current Preview Display Path
 
@@ -180,7 +189,8 @@ When the user reports "this version became much slower", check these first befor
      - Earlier bad runs showed `removeWatermarkMs` on the order of `11s ~ 13s` for a single preview image.
    - Verify:
      - Reinstall the latest userscript from the current active build server
-       - current confirmed URL: `http://127.0.0.1:4317/userscript/gemini-watermark-remover.user.js`
+       - use the actual userscript URL from the active `pnpm dev` server
+       - the server starts probing from `http://127.0.0.1:4173/` and may auto-increment
      - Refresh the real page
      - Confirm console reaches `Initializing...` and `Ready`
      - Confirm preview images continue to `page image process success`
@@ -265,8 +275,7 @@ Current confirmed real-page result with the passive native chain plus sticky dow
   - `originalGradientScore ~= 0.0826`
 - no `无法获取原图，请刷新页面后重试` alert appeared
 - `复制图片` wrote an `image/png` item to the clipboard without a failure alert
-- current artifact:
-  - `.artifacts/request-layer-effect-verify/2026-04-04T15-00-44-510Z/download/report.json`
+- the request-layer verification report path is session-specific; do not assume an older dated artifact still exists in the current worktree
 
 ### Worker Debug Flow
 

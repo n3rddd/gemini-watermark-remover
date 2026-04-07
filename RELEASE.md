@@ -6,7 +6,7 @@ This repository currently ships three release surfaces:
 
 - website build in `dist/`
 - userscript bundle in `dist/userscript/gemini-watermark-remover.user.js`
-- package/sdk metadata from `package.json`
+- package/sdk source and metadata from `package.json`, `src/core/`, and `src/sdk/`
 
 ## Preflight
 
@@ -21,7 +21,9 @@ pnpm build
 Expected result:
 
 - all tests pass
+- website artifacts in `dist/` are regenerated for the current build
 - `dist/userscript/gemini-watermark-remover.user.js` is regenerated
+- package/sdk entrypoints in `package.json` still match the published source layout
 - generated userscript metadata uses the current `package.json` version
 
 ## Release Metadata
@@ -33,6 +35,7 @@ Expected result:
 ## Manual Verification
 
 - install or update the generated userscript in Tampermonkey/Violentmonkey
+- run `pnpm probe:tm:freshness` against the fixed profile when validating the local install
 - verify Gemini page preview replacement works
 - verify native Gemini copy/download still returns processed output
 - verify preview processing failure leaves the original page image visible

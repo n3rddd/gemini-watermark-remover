@@ -21,7 +21,7 @@ An open-source tool to **remove Gemini watermarks** from AI-generated images —
 - ✅ **100% Client-side** - No backend, no server-side processing. Your data stays in your browser.
 - ✅ **Privacy-First** - Images are never uploaded to any server. Period.
 - ✅ **Mathematical Precision** - Based on the Reverse Alpha Blending formula, not "hallucinating" AI models.
-- ✅ **Auto-Detection** - Intelligent recognition of 48×48 or 96×96 watermark variants.
+- ✅ **Auto-Detection** - Uses the Gemini size catalog plus local anchor search and interpolated alpha maps for non-standard variants.
 - ✅ **User Friendly** - Simple drag-and-drop interface with instant processing.
 - ✅ **Cross-Platform** - Runs smoothly on all modern web browsers.
 
@@ -109,6 +109,11 @@ pnpm build
 pnpm serve
 ```
 
+### Cloudflare Deployment Note
+
+- `wrangler.toml` is the deployment config for the Cloudflare Worker/assets entry of this project.
+- It points Wrangler at the built `dist/` directory and should be kept even if local tests or source imports do not reference it directly.
+
 ### Tampermonkey Debugging on macOS
 
 For the repo's fixed-profile workflow on macOS:
@@ -129,7 +134,9 @@ Notes:
 - the fixed profile lives under `.chrome-debug/tampermonkey-profile`
 - default CDP port is `9226`
 - default proxy is `http://127.0.0.1:7890`; disable it with `--proxy off` if not needed
-- reinstall the latest userscript from `http://127.0.0.1:4173/userscript/gemini-watermark-remover.user.js`
+- reinstall the latest userscript from the active local `pnpm dev` server
+- `pnpm dev` starts probing from `http://127.0.0.1:4173/` and auto-increments if that port is already occupied
+- if you are following a previously captured debugging session, its port may differ; trust the current `pnpm dev` output instead of hardcoding `4173`
 
 ## SDK Usage
 
@@ -258,6 +265,7 @@ gemini-watermark-remover/
 │   ├── app.js             # Website application entry point
 │   └── i18n.js            # Internationalization utilities
 ├── dist/                  # Build output directory
+├── wrangler.toml          # Cloudflare Worker/assets deployment config
 ├── scripts/               # Local automation and debug launchers
 ├── build.js               # Build script
 └── package.json
@@ -310,6 +318,7 @@ Required APIs:
 - Canvas API
 - Async/Await
 - TypedArray (Float32Array, Uint8ClampedArray)
+- for the website's copy button: `navigator.clipboard.write(...)` and `ClipboardItem`
 
 ---
 
@@ -317,11 +326,11 @@ Required APIs:
 
 - Only removes **Gemini visible watermarks** <small>(the semi-transparent logo in bottom-right)</small>
 - Does not remove invisible/steganographic watermarks. <small>[(Learn more about SynthID)](https://support.google.com/gemini/answer/16722517)</small>
-- Designed for Gemini's current watermark pattern <small>(as of 2025)</small>
+- Designed for Gemini's current visible watermark pattern <small>(validated against this repo through April 2026)</small>
 
 ## Legal Disclaimer
 
-This tool is provided for **personal and educational use only**. 
+This project is released under the **MIT License**.
 
 The removal of watermarks may have legal implications depending on your jurisdiction and the intended use of the images. Users are solely responsible for ensuring their use of this tool complies with applicable laws, terms of service, and intellectual property rights.
 

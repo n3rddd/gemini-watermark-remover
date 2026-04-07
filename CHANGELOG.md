@@ -23,7 +23,7 @@
 
 ### Tooling
 
-- Disabled browser caching for the local dev static server so `http://127.0.0.1:4173/` is less likely to keep serving stale bundles during watermark validation work.
+- Disabled browser caching for the local dev static server so the active `pnpm dev` port, starting from `http://127.0.0.1:4173/`, is less likely to keep serving stale bundles during watermark validation work.
 
 ### Quality
 
@@ -96,7 +96,7 @@
 - Added a restrained `Processing...` overlay during preview processing and made failures fail-open so the original image remains visible.
 - Hardened overlay lifecycle cleanup to avoid stale fade callbacks removing a new processing state.
 
-### Extension
+### Shared Display Path
 
 - Kept page-image replacement behavior aligned with the userscript preview pipeline and processing-state UX.
 
