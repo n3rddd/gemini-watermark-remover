@@ -14,7 +14,8 @@ test('package.json should expose the expected local script entrypoints', () => {
     'probe:tm:freshness': 'node scripts/tampermonkey-freshness.js',
     'probe:tm:profile': 'node scripts/open-tampermonkey-profile.js',
     'probe:real-page:compare': 'node scripts/real-page-pixel-compare.js',
-    'benchmark:userscript': 'node scripts/userscript-benchmark.js'
+    'benchmark:userscript': 'node scripts/userscript-benchmark.js',
+    'cli:smoke': 'node bin/gwr.mjs --help'
   };
 
   for (const [scriptName, command] of Object.entries(expectedScripts)) {

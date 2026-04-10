@@ -2,9 +2,9 @@
 
 # Gemini Watermark Remover — Lossless Watermark Removal Tool
 
-An open-source tool to **remove Gemini watermarks** from AI-generated images — losslessly and precisely. Built with pure JavaScript, the engine uses a mathematically exact **Reverse Alpha Blending** algorithm instead of unpredictable AI inpainting, delivering pixel-perfect Gemini watermark removal every time.
+An open-source tool to **remove Gemini watermarks** from AI-generated images with high-fidelity, reproducible results on supported outputs. Built with pure JavaScript, the engine uses a mathematically exact **Reverse Alpha Blending** algorithm instead of unpredictable AI inpainting.
 
-> **🚀 Looking for an easy Gemini watermark removal tool? Try it now: [pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — free, no install, works directly in your browser.
+> **🚀 Looking for the `Online Gemini Watermark Remover (Recommended)`? Try [pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — free, no install, works directly in your browser.
 
 <p align="center">
   <a href="https://pilio.ai/gemini-watermark-remover"><img src="https://img.shields.io/badge/🛠️_Online_Tool-pilio.ai-blue?style=for-the-badge" alt="Online Tool"></a>&nbsp;
@@ -18,12 +18,12 @@ An open-source tool to **remove Gemini watermarks** from AI-generated images —
 
 ## Features
 
-- ✅ **100% Client-side** - No backend, no server-side processing. Your data stays in your browser.
-- ✅ **Privacy-First** - Images are never uploaded to any server. Period.
+- ✅ **Local Processing Across Entry Points** - Online tool and userscript process images locally in-browser; Skill/CLI workflows run locally in your own environment.
+- ✅ **Privacy-First** - Images are not uploaded to our servers for processing.
 - ✅ **Mathematical Precision** - Based on the Reverse Alpha Blending formula, not "hallucinating" AI models.
 - ✅ **Auto-Detection** - Uses the Gemini size catalog plus local anchor search and interpolated alpha maps for non-standard variants.
-- ✅ **User Friendly** - Simple drag-and-drop interface with instant processing.
-- ✅ **Cross-Platform** - Runs smoothly on all modern web browsers.
+- ✅ **Multiple Access Paths** - Online tool, userscript, Skill, and CLI cover consumer, agent, and automation workflows.
+- ✅ **Cross-Platform** - Supports modern browsers and Node.js-based local automation setups.
 
 ## Gemini Watermark Removal Examples
 
@@ -72,7 +72,7 @@ For all users — the fastest and easiest way to remove Gemini watermarks from i
 3. The engine will automatically process and remove the watermark.
 4. Download the cleaned image.
 
-### Userscript for Gemini Conversation Pages
+### Userscript
 
 1. Install a userscript manager (e.g., Tampermonkey or Greasemonkey).
 2. Open [gemini-watermark-remover.user.js](https://gemini.pilio.ai/userscript/gemini-watermark-remover.user.js).
@@ -88,6 +88,28 @@ Current userscript boundaries:
 - page previews and native copy/download flows are both processed when the source image is reachable
 - preview images keep the original visible while processing, with a subdued `Processing...` overlay
 - if preview processing fails, the original page image stays visible and usable
+
+### Skill
+
+For agent users who want a higher-level workflow:
+
+- Use the published `gemini-watermark-remover` Skill as the agent-facing entrypoint.
+- The Skill delegates execution to the `gwr` CLI under the hood, so it stays stable for automation while keeping prompts simple.
+- Use this when you want agent-native file processing without exposing low-level CLI details in every prompt.
+
+### CLI
+
+For scripting, CI, and local batch workflows, use the direct CLI:
+
+```bash
+gwr remove <input> [--output <file> | --out-dir <dir>] [--overwrite] [--json]
+```
+
+If you do not have `gwr` installed globally, use:
+
+```bash
+pnpm dlx gemini-watermark-remover remove <input> --output <file>
+```
 
 ### Developer Preview
 
@@ -138,9 +160,9 @@ Notes:
 - `pnpm dev` starts probing from `http://127.0.0.1:4173/` and auto-increments if that port is already occupied
 - if you are following a previously captured debugging session, its port may differ; trust the current `pnpm dev` output instead of hardcoding `4173`
 
-## SDK Usage
+## SDK Usage (Advanced / Internal)
 
-The package root now exposes a small public SDK for third-party integrations:
+The package root still exposes an SDK, but this path is intended for advanced or internal integration scenarios:
 
 ```javascript
 import {

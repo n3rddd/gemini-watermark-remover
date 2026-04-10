@@ -2,9 +2,9 @@
 
 # Gemini 去水印工具 — 无损去除 Gemini AI 图片水印
 
-开源的 **Gemini 水印去除工具**，可无损去除 Gemini AI 生成图片中的水印。基于纯 JavaScript 实现，使用数学精确的反向 Alpha 混合算法，而非 AI 修复，确保像素级精准的 Gemini 图片去水印效果。
+开源的 **Gemini 水印去除工具**，在已支持的 Gemini 导出图片上可提供高保真、可复现的去水印结果。基于纯 JavaScript 实现，使用数学精确的反向 Alpha 混合算法，而非 AI 修复。
 
-> **🚀 想快速去除 Gemini 水印？直接使用在线去水印工具：[pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — 免费、无需安装，浏览器即可使用。
+> **🚀 想快速去除 Gemini 水印？直接使用`在线 Gemini 去水印工具`：[pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — 免费、无需安装，浏览器即可使用。
 
 <p align="center">
   <a href="https://pilio.ai/gemini-watermark-remover"><img src="https://img.shields.io/badge/🛠️_在线工具-pilio.ai-blue?style=for-the-badge" alt="在线工具"></a>&nbsp;
@@ -18,12 +18,12 @@
 
 ## 特性
 
-- ✅ **纯浏览器端处理** - 无需后端服务器，所有处理在本地完成
-- ✅ **隐私保护** - 图片不会上传到任何服务器
+- ✅ **多入口本地处理** - 在线工具与油猴脚本在浏览器本地处理；Skill/CLI 在你的本地环境执行处理流程
+- ✅ **隐私保护** - 图片处理不上传到我们的服务器
 - ✅ **数学精确** - 基于反向 Alpha 混合算法，非 AI 模型
 - ✅ **自动检测** - 结合 Gemini 官方尺寸目录、局部锚点搜索，以及对非标准尺寸的插值 alpha map 处理
-- ✅ **易于使用** - 拖拽选择图片，一键处理
-- ✅ **跨平台** - 支持所有现代浏览器
+- ✅ **多种使用入口** - 在线工具、油猴脚本、Skill、CLI 覆盖普通用户、agent 和自动化场景
+- ✅ **跨平台** - 支持现代浏览器与基于 Node.js 的本地自动化环境
 
 ## Gemini 去水印效果示例
 
@@ -89,6 +89,28 @@
 - 处理预览图时会保留原图显示，并叠加克制的 `Processing...` 状态遮罩
 - 如果预览图处理失败，不会把页面原图隐藏掉或替换成空白
 
+### Skill
+
+面向 agent 用户的推荐方式：
+
+- 使用发布的 `gemini-watermark-remover` Skill 作为 agent 入口。
+- Skill 底层依赖 `gwr` CLI 执行去水印任务，但会把常用流程封装成更稳定的指令形态。
+- 适合希望通过 agent 处理本地文件、又不想每次都手写底层 CLI 参数的场景。
+
+### CLI
+
+面向脚本化、CI、批量处理等自动化场景，可直接调用 CLI：
+
+```bash
+gwr remove <input> [--output <file> | --out-dir <dir>] [--overwrite] [--json]
+```
+
+如果本机未全局安装 `gwr`，可直接使用：
+
+```bash
+pnpm dlx gemini-watermark-remover remove <input> --output <file>
+```
+
 ### 开发者预览
 
 如果你是开发者或贡献者，可以通过 [gemini.pilio.ai](https://gemini.pilio.ai) 预览最新的开发版本。这个站点是独立的在线预览/本地处理界面，和油猴脚本是两条不同产品线。该版本可能包含实验性功能，不建议普通用户日常使用。
@@ -138,9 +160,9 @@ pnpm dev
 - `pnpm dev` 默认从 `http://127.0.0.1:4173/` 开始探测；如果端口被占用，会自动递增
 - 如果你参考的是之前某次调试记录，端口可能不是 `4173`；以当前 `pnpm dev` 输出为准
 
-## SDK 用法
+## SDK 用法（高级 / 内部）
 
-现在包根已经暴露了一层较稳定的公共 SDK，第三方可直接调用：
+包根仍然提供 SDK，但更建议将它视为高级或内部集成接口：
 
 ```javascript
 import {
