@@ -4,12 +4,14 @@
 
 开源的 **Gemini 水印去除工具**，在已支持的 Gemini 导出图片上可提供高保真、可复现的去水印结果。基于纯 JavaScript 实现，使用数学精确的反向 Alpha 混合算法，而非 AI 修复。
 
-> **🚀 想快速去除 Gemini 水印？直接使用`在线 Gemini 去水印工具`：[pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — 免费、无需安装，浏览器即可使用。
+> **🚀 想快速去除 Gemini 水印？直接使用`在线 Gemini 去水印工具`：[geminiwatermarkremover.io](https://geminiwatermarkremover.io/)** — 免费、无需安装，浏览器即可使用。
+>
+> 💡 Gemini 去不掉的水印？试试通用 AI 去水印工具：[pilio.ai/image-watermark-remover](https://pilio.ai/image-watermark-remover)
 
 <p align="center">
-  <a href="https://pilio.ai/gemini-watermark-remover"><img src="https://img.shields.io/badge/🛠️_在线工具-pilio.ai-blue?style=for-the-badge" alt="在线工具"></a>&nbsp;
-  <a href="https://gemini.pilio.ai/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_油猴脚本-安装-green?style=for-the-badge" alt="油猴脚本"></a>&nbsp;
-  <a href="https://gemini.pilio.ai"><img src="https://img.shields.io/badge/🧪_开发者预览-gemini.pilio.ai-gray?style=for-the-badge" alt="开发者预览"></a>
+  <a href="https://geminiwatermarkremover.io/"><img src="https://img.shields.io/badge/🛠️_在线工具-geminiwatermarkremover.io-blue?style=for-the-badge" alt="在线工具"></a>&nbsp;
+  <a href="https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_油猴脚本-安装-green?style=for-the-badge" alt="油猴脚本"></a>&nbsp;
+  <a href="https://pilio.ai/image-watermark-remover"><img src="https://img.shields.io/badge/🧹_通用去水印-pilio.ai-gray?style=for-the-badge" alt="通用去水印"></a>
 </p>
 
 <p align="center">
@@ -66,7 +68,7 @@
 
 所有用户均可使用 — 最简单快速的 Gemini 图片去水印方式：
 
-1. 浏览器打开 **[pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)**
+1. 浏览器打开 **[geminiwatermarkremover.io](https://geminiwatermarkremover.io/)**
 2. 拖拽或点击选择带水印的 Gemini 图片
 3. 图片会自动开始处理，移除水印
 4. 下载处理后的图片
@@ -74,7 +76,7 @@
 ### 油猴脚本
 
 1. 安装油猴插件（如 Tampermonkey 或 Greasemonkey）
-2. 打开 [gemini-watermark-remover.user.js](https://gemini.pilio.ai/userscript/gemini-watermark-remover.user.js)
+2. 打开 [gemini-watermark-remover.user.js](https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js)
 3. 脚本会自动安装到浏览器中
 4. 打开 Gemini 对话页面
 5. 页面里可处理的 Gemini 预览图会在处理后直接替换显示
@@ -126,9 +128,11 @@ gwr remove <input> [--output <file> | --out-dir <dir>] [--overwrite] [--json]
 pnpm dlx @pilio/gemini-watermark-remover remove <input> --output <file>
 ```
 
-### 开发者预览
+### 去不掉的水印？
 
-如果你是开发者或贡献者，可以通过 [gemini.pilio.ai](https://gemini.pilio.ai) 预览最新的开发版本。这个站点是独立的在线预览/本地处理界面，和油猴脚本是两条不同产品线。该版本可能包含实验性功能，不建议普通用户日常使用。
+本工具专门针对 Gemini 可见水印（右下角半透明 Logo）。如果你的图片水印不属于 Gemini 已知格式，或需要去除其他类型的图片水印，可以试试通用 AI 去水印工具：
+
+👉 **[pilio.ai/image-watermark-remover](https://pilio.ai/image-watermark-remover)**
 
 ## 开发
 
@@ -142,9 +146,15 @@ pnpm dev
 # 生产构建
 pnpm build
 
-# 本地预览
+# 本地静态服务
 pnpm serve
 ```
+
+说明：
+
+- 根路径 `/` 现在是轻量入口页，只负责引导到官网、userscript 安装地址和仓库内保留的内部预览页。
+- 内部浏览器预览页位于 `/dev-preview.html`，当前保留为中文静态单图对比 harness，用于本地算法/UI 调试，不再作为对外开发者预览站，也不再维护多语言和主题切换。
+- `pnpm dev` / `pnpm serve` 仍会提供 userscript、probe 页面和这些静态资产。
 
 ### Cloudflare 部署说明
 
@@ -311,8 +321,8 @@ $$original = \frac{watermarked - \alpha \cdot logo}{1 - \alpha}$$
 gemini-watermark-remover/
 ├── bin/                   # 发布后的 CLI 入口（`gwr`）
 ├── public/
-│   ├── index.html         # 主网页体验
-│   ├── terms.html         # 使用条款页面
+│   ├── index.html         # 官网 / userscript / 内部预览入口页
+│   ├── dev-preview.html   # 保留给仓库本地调试的内部浏览器预览页
 │   └── tampermonkey-worker-probe.*  # userscript / worker 调试探针页
 ├── skills/
 │   └── gemini-watermark-remover/    # 可分发的 agent Skill bundle
@@ -320,14 +330,13 @@ gemini-watermark-remover/
 │   ├── assets/            # 校准资源与回归样本
 │   ├── cli/               # CLI 参数解析与文件工作流
 │   ├── core/              # 去水印核心算法、评分与恢复逻辑
-│   ├── i18n/              # 网页国际化资源
 │   ├── page/              # Gemini 页面侧运行时
 │   ├── sdk/               # 高级 / 内部 SDK 接口
 │   ├── shared/            # DOM、blob、session 等共享辅助模块
 │   ├── userscript/        # userscript 入口与浏览器钩子
 │   ├── workers/           # worker 运行时
-│   ├── app.js             # 网站应用入口
-│   └── i18n.js            # 国际化工具
+│   ├── app.js             # 内部单图预览 harness 入口
+│   └── utils.js           # 内部预览页通用浏览器工具
 ├── tests/                 # 单元、回归、打包与 smoke 测试
 ├── scripts/               # 本地自动化与调试启动脚本
 ├── dist/                  # 构建输出目录

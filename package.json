@@ -21,6 +21,7 @@
     "type": "git",
     "url": "https://github.com/GargantuaX/gemini-watermark-remover.git"
   },
+  "homepage": "https://geminiwatermarkremover.io/",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -74,8 +75,6 @@
     "calibrate:preview-alpha": "node scripts/calibrate-preview-alpha.js"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
-    "medium-zoom": "^1.1.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {

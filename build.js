@@ -58,8 +58,6 @@ const copyAssetsPlugin = {
     build.onEnd(() => {
       console.log('📂 Syncing static assets...');
       try {
-        if (!existsSync('dist/i18n')) mkdirSync('dist/i18n', { recursive: true });
-        cpSync('src/i18n', 'dist/i18n', { recursive: true });
         cpSync('public', 'dist', { recursive: true });
       } catch (err) {
         console.error('❌ Asset copy failed:', err);
@@ -265,7 +263,6 @@ if (isProd) {
       }, 100);
     });
   };
-  watchDir('src/i18n', 'dist/i18n');
   watchDir('public', 'dist');
 
   await serveStaticDevDist('dist');

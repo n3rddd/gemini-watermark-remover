@@ -4,12 +4,14 @@
 
 An open-source tool to **remove Gemini watermarks** from AI-generated images with high-fidelity, reproducible results on supported outputs. Built with pure JavaScript, the engine uses a mathematically exact **Reverse Alpha Blending** algorithm instead of unpredictable AI inpainting.
 
-> **🚀 Looking for the `Online Gemini Watermark Remover (Recommended)`? Try [pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)** — free, no install, works directly in your browser.
+> **🚀 Looking for the `Online Gemini Watermark Remover (Recommended)`? Try [geminiwatermarkremover.io](https://geminiwatermarkremover.io/)** — free, no install, works directly in your browser.
+>
+> 💡 Got watermarks that Gemini Watermark Remover can't handle? Try the general-purpose AI watermark remover: [pilio.ai/image-watermark-remover](https://pilio.ai/image-watermark-remover)
 
 <p align="center">
-  <a href="https://pilio.ai/gemini-watermark-remover"><img src="https://img.shields.io/badge/🛠️_Online_Tool-pilio.ai-blue?style=for-the-badge" alt="Online Tool"></a>&nbsp;
-  <a href="https://gemini.pilio.ai/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_Userscript-Install-green?style=for-the-badge" alt="Userscript"></a>&nbsp;
-  <a href="https://gemini.pilio.ai"><img src="https://img.shields.io/badge/🧪_Dev_Preview-gemini.pilio.ai-gray?style=for-the-badge" alt="Developer Preview"></a>
+  <a href="https://geminiwatermarkremover.io/"><img src="https://img.shields.io/badge/🛠️_Online_Tool-geminiwatermarkremover.io-blue?style=for-the-badge" alt="Online Tool"></a>&nbsp;
+  <a href="https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js"><img src="https://img.shields.io/badge/🐒_Userscript-Install-green?style=for-the-badge" alt="Userscript"></a>&nbsp;
+  <a href="https://pilio.ai/image-watermark-remover"><img src="https://img.shields.io/badge/🧹_General_Remover-pilio.ai-gray?style=for-the-badge" alt="General Watermark Remover"></a>
 </p>
 
 <p align="center">
@@ -66,7 +68,7 @@ An open-source tool to **remove Gemini watermarks** from AI-generated images wit
 
 For all users — the fastest and easiest way to remove Gemini watermarks from images:
 
-1. Open **[pilio.ai/gemini-watermark-remover](https://pilio.ai/gemini-watermark-remover)**.
+1. Open **[geminiwatermarkremover.io](https://geminiwatermarkremover.io/)**.
 2. Drag and drop or click to select your Gemini-generated image.
 3. The engine will automatically process and remove the watermark.
 4. Download the cleaned image.
@@ -74,7 +76,7 @@ For all users — the fastest and easiest way to remove Gemini watermarks from i
 ### Userscript
 
 1. Install a userscript manager (e.g., Tampermonkey or Greasemonkey).
-2. Open [gemini-watermark-remover.user.js](https://gemini.pilio.ai/userscript/gemini-watermark-remover.user.js).
+2. Open [gemini-watermark-remover.user.js](https://geminiwatermarkremover.io/userscript/gemini-watermark-remover.user.js).
 3. The script will install automatically.
 4. Navigate to Gemini conversation pages.
 5. Eligible Gemini preview images on the page are replaced in place after processing.
@@ -126,9 +128,11 @@ If you do not have `gwr` installed globally, use:
 pnpm dlx @pilio/gemini-watermark-remover remove <input> --output <file>
 ```
 
-### Developer Preview
+### Can't Remove Your Watermark?
 
-If you are a developer or contributor, you can preview the latest development build at [gemini.pilio.ai](https://gemini.pilio.ai). This site is a separate online preview/local-processing experience, distinct from the userscript. It may contain experimental features and is not intended for general use.
+This tool targets Gemini's visible watermark (the semi-transparent logo in the bottom-right corner). If your image watermark doesn't match a known Gemini format, or you need to remove other types of image watermarks, try the general-purpose AI watermark remover:
+
+👉 **[pilio.ai/image-watermark-remover](https://pilio.ai/image-watermark-remover)**
 
 ## Development
 
@@ -142,9 +146,15 @@ pnpm dev
 # Production build
 pnpm build
 
-# Local preview
+# Local static serving
 pnpm serve
 ```
+
+Notes:
+
+- The root path `/` is now a lightweight entry page that points to the official website, the userscript artifact, and the retained internal preview page.
+- The internal browser preview harness lives at `/dev-preview.html`, is now kept as a static Chinese-only single-image compare harness for local algorithm/UI debugging, and no longer maintains public-facing locale or theme-switching features.
+- `pnpm dev` / `pnpm serve` still host the userscript, probe pages, and these static assets.
 
 ### Cloudflare Deployment Note
 
@@ -311,8 +321,8 @@ Default watermark configurations:
 gemini-watermark-remover/
 ├── bin/                   # Published CLI entrypoint (`gwr`)
 ├── public/
-│   ├── index.html         # Main web experience
-│   ├── terms.html         # Terms of service page
+│   ├── index.html         # Entry page for official site / userscript / internal preview
+│   ├── dev-preview.html   # Internal browser preview harness kept for local debugging
 │   └── tampermonkey-worker-probe.*  # Probe pages for userscript/debug flows
 ├── skills/
 │   └── gemini-watermark-remover/    # Distributable agent skill bundle
@@ -320,14 +330,13 @@ gemini-watermark-remover/
 │   ├── assets/            # Calibration assets and regression samples
 │   ├── cli/               # CLI argument parsing and file workflows
 │   ├── core/              # Watermark math, scoring, and restoration
-│   ├── i18n/              # Web locale resources
 │   ├── page/              # Page-side runtime for Gemini page integration
 │   ├── sdk/               # Advanced/internal SDK surface
 │   ├── shared/            # Shared DOM, blob, and session helpers
 │   ├── userscript/        # Userscript entrypoints and browser hooks
 │   ├── workers/           # Worker runtime
-│   ├── app.js             # Website application entry point
-│   └── i18n.js            # Internationalization utilities
+│   ├── app.js             # Internal single-image preview harness entry point
+│   └── utils.js           # Shared browser helpers for the internal preview page
 ├── tests/                 # Unit, regression, packaging, and smoke tests
 ├── scripts/               # Local automation and debug launchers
 ├── dist/                  # Build output directory
