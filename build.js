@@ -120,7 +120,14 @@ async function serveStaticDevDist(rootDir = 'dist', defaultPort = 4173) {
       res.end('Bad Request');
       return;
     }
-    const requestPath = urlPath === '/' ? '/index.html' : urlPath;
+    // In dev mode, expose the internal single-image debug harness at `/`
+    // instead of the public landing entry. The landing page still ships to
+    // `dist/index.html` for prod deploys and can be reached at `/index.html`.
+    const devHarnessPath = '/dev-preview.html';
+    const requestPath =
+      urlPath === '/' || urlPath === ''
+        ? devHarnessPath
+        : urlPath;
     const fsPath = resolve(join(distRoot, normalize(requestPath)));
 
     if (!fsPath.startsWith(distRoot)) {
@@ -136,7 +143,7 @@ async function serveStaticDevDist(rootDir = 'dist', defaultPort = 4173) {
     const targetIsDir = targetExists && statSync(targetPath).isDirectory();
 
     if ((!targetExists || targetIsDir) && isSpaRoute) {
-      targetPath = resolve(join(distRoot, 'index.html'));
+      targetPath = resolve(join(distRoot, 'dev-preview.html'));
     }
 
     if (!existsSync(targetPath)) {
@@ -155,6 +162,8 @@ async function serveStaticDevDist(rootDir = 'dist', defaultPort = 4173) {
 
   server.listen(port, () => {
     console.log(`🌐 Dev server running at http://localhost:${port}`);
+    console.log(`   ↳ internal debug harness: http://localhost:${port}/ (dev-preview.html)`);
+    console.log(`   ↳ public landing entry:   http://localhost:${port}/index.html`);
   });
 
   const shutdown = () => {
